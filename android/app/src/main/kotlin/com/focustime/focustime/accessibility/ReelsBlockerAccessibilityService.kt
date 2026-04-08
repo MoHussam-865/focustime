@@ -8,6 +8,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import com.matrixlab.focustime.filter.BlockLists
+import com.matrixlab.focustime.filter.ContentFilterManager
 import com.matrixlab.focustime.service.BlockerForegroundService
 
 class ReelsBlockerAccessibilityService : AccessibilityService() {
@@ -62,9 +64,12 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     )
 
     private var lastBlockTime = 0L
+    private var lastPornBlockTime = 0L
     private var cooldownMs = 2000L
+    private val pornCooldownMs = 3000L
     private var monitoredPackages: Set<String> = targetPackages
     private lateinit var prefs: SharedPreferences
+    private val contentFilter = ContentFilterManager()
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
@@ -79,8 +84,28 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
         loadMonitoredPackages()
+        applyDynamicPackageFilter()
         startBlockerService()
         Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms, Packages: $monitoredPackages")
+    }
+
+    /**
+     * Dynamically set the packages the service monitors.
+     * Merges reels targets + browser packages + porn app packages
+     * so the service receives events from all of them.
+     */
+    private fun applyDynamicPackageFilter() {
+        try {
+            val allPackages = monitoredPackages +
+                    BlockLists.browserPackages +
+                    BlockLists.pornAppPackages
+            serviceInfo = serviceInfo.apply {
+                packageNames = allPackages.toTypedArray()
+            }
+            Log.d(TAG, "Dynamic package filter applied: ${allPackages.size} packages")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply dynamic package filter", e)
+        }
     }
 
     private fun startBlockerService() {
@@ -115,6 +140,10 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
             monitoredPackages = targetPackages
         }
         Log.d(TAG, "Monitored packages updated: $monitoredPackages")
+        // Re-apply dynamic filter so browser + porn app packages are always included
+        if (::prefs.isInitialized) {
+            applyDynamicPackageFilter()
+        }
     }
 
     /** Safely read a Long from prefs, handling stale Int values */
@@ -136,14 +165,45 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         event ?: return
         val pkg = event.packageName?.toString() ?: return
 
-        if (pkg !in monitoredPackages) return
-
         val eventType = event.eventType
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) return
 
         val now = System.currentTimeMillis()
+
+        // ── Layer 1: Known porn app — block immediately ──────────────
+        if (contentFilter.isPornApp(pkg)) {
+            if (now - lastPornBlockTime < pornCooldownMs) return
+            Log.d(TAG, "Porn app detected: $pkg — blocking")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            lastPornBlockTime = now
+            incrementBlockedCount()
+            showToast("Content blocked by FocusTime")
+            return
+        }
+
+        // ── Layer 2: Browser — check URL / keywords ──────────────────
+        if (contentFilter.isBrowserApp(pkg)) {
+            if (now - lastPornBlockTime < pornCooldownMs) return
+            val root = rootInActiveWindow ?: return
+            try {
+                if (contentFilter.shouldBlockBrowserContent(root)) {
+                    Log.d(TAG, "Porn content detected in browser $pkg — blocking")
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    lastPornBlockTime = now
+                    incrementBlockedCount()
+                    showToast("Content blocked by FocusTime")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking browser content", e)
+            }
+            // Browser events don't fall through to reels check
+            return
+        }
+
+        // ── Layer 3: Reels / Shorts blocking (existing logic) ────────
+        if (pkg !in monitoredPackages) return
         if (now - lastBlockTime < cooldownMs) return
 
         if (isReelsContent(pkg)) {
@@ -151,12 +211,15 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
             performGlobalAction(GLOBAL_ACTION_BACK)
             lastBlockTime = now
             incrementBlockedCount()
+            showToast("Blocked by FocusTime")
+        }
+    }
 
-            try {
-                Toast.makeText(this, "Blocked by FocusTime", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not show toast", e)
-            }
+    private fun showToast(message: String) {
+        try {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not show toast", e)
         }
     }
 
