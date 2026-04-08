@@ -32,7 +32,9 @@ class SettingsViewModel extends ChangeNotifier {
       _settings = await _settingsRepository.getSettings();
       _blockedApps = await _settingsRepository.getBlockedApps();
       // Sync the porn block setting to native side on load
-      await _accessibilityService.setPornBlockEnabled(_settings.pornBlockEnabled);
+      await _accessibilityService.setPornBlockEnabled(
+        _settings.pornBlockEnabled,
+      );
     } catch (_) {
       _settings = const AppSettings();
       _blockedApps = BlockedApp.defaults();

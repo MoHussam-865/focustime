@@ -36,6 +36,10 @@ class AppSettings {
           pornBlockEnabled == other.pornBlockEnabled;
 
   @override
-  int get hashCode =>
-      Object.hash(cooldownMs, showToastOnBlock, blockLogEnabled, pornBlockEnabled);
+  int get hashCode => Object.hash(
+    cooldownMs,
+    showToastOnBlock,
+    blockLogEnabled,
+    pornBlockEnabled,
+  );
 }
