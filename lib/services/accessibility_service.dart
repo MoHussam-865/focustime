@@ -106,4 +106,15 @@ class AccessibilityService {
       return false;
     }
   }
+
+  Future<bool> setPornBlockEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setPornBlockEnabled', {
+        'enabled': enabled,
+      });
+      return result ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }

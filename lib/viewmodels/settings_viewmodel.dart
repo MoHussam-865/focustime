@@ -31,6 +31,8 @@ class SettingsViewModel extends ChangeNotifier {
     try {
       _settings = await _settingsRepository.getSettings();
       _blockedApps = await _settingsRepository.getBlockedApps();
+      // Sync the porn block setting to native side on load
+      await _accessibilityService.setPornBlockEnabled(_settings.pornBlockEnabled);
     } catch (_) {
       _settings = const AppSettings();
       _blockedApps = BlockedApp.defaults();
@@ -58,6 +60,13 @@ class SettingsViewModel extends ChangeNotifier {
     _settings = _settings.copyWith(blockLogEnabled: value);
     notifyListeners();
     await _settingsRepository.saveSettings(_settings);
+  }
+
+  Future<void> togglePornBlock(bool value) async {
+    _settings = _settings.copyWith(pornBlockEnabled: value);
+    notifyListeners();
+    await _settingsRepository.saveSettings(_settings);
+    await _accessibilityService.setPornBlockEnabled(value);
   }
 
   Future<void> toggleApp(int index) async {

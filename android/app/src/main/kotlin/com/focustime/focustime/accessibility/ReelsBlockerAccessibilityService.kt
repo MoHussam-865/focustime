@@ -20,6 +20,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_COOLDOWN = "flutter.cooldown_ms"
         private const val KEY_BLOCKED_COUNT = "flutter.blocked_count"
         private const val KEY_MONITORED_PACKAGES = "flutter.monitored_packages"
+        private const val KEY_PORN_BLOCK_ENABLED = "flutter.porn_block_enabled"
         private const val MAX_TREE_DEPTH = 15
     }
 
@@ -68,6 +69,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     private var cooldownMs = 2000L
     private val pornCooldownMs = 3000L
     private var monitoredPackages: Set<String> = targetPackages
+    private var pornBlockEnabled = true
     private lateinit var prefs: SharedPreferences
     private val contentFilter = ContentFilterManager()
 
@@ -75,6 +77,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         when (key) {
             KEY_MONITORED_PACKAGES -> loadMonitoredPackages()
             KEY_COOLDOWN -> cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
+            KEY_PORN_BLOCK_ENABLED -> loadPornBlockEnabled()
         }
     }
 
@@ -84,6 +87,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
         loadMonitoredPackages()
+        loadPornBlockEnabled()
         applyDynamicPackageFilter()
         startBlockerService()
         Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms, Packages: $monitoredPackages")
@@ -96,13 +100,15 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
      */
     private fun applyDynamicPackageFilter() {
         try {
-            val allPackages = monitoredPackages +
-                    BlockLists.browserPackages +
-                    BlockLists.pornAppPackages
+            var allPackages = monitoredPackages.toMutableSet()
+            if (pornBlockEnabled) {
+                allPackages += BlockLists.browserPackages
+                allPackages += BlockLists.pornAppPackages
+            }
             serviceInfo = serviceInfo.apply {
                 packageNames = allPackages.toTypedArray()
             }
-            Log.d(TAG, "Dynamic package filter applied: ${allPackages.size} packages")
+            Log.d(TAG, "Dynamic package filter applied: ${allPackages.size} packages (pornBlock=$pornBlockEnabled)")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to apply dynamic package filter", e)
         }
@@ -146,6 +152,19 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun loadPornBlockEnabled() {
+        pornBlockEnabled = try {
+            prefs.getBoolean(KEY_PORN_BLOCK_ENABLED, true)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load porn block setting, defaulting to true", e)
+            true
+        }
+        Log.d(TAG, "Porn block enabled: $pornBlockEnabled")
+        if (::prefs.isInitialized) {
+            applyDynamicPackageFilter()
+        }
+    }
+
     /** Safely read a Long from prefs, handling stale Int values */
     private fun safeLong(key: String, default: Long): Long {
         return try {
@@ -173,7 +192,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
         // ── Layer 1: Known porn app — block immediately ──────────────
-        if (contentFilter.isPornApp(pkg)) {
+        if (pornBlockEnabled && contentFilter.isPornApp(pkg)) {
             if (now - lastPornBlockTime < pornCooldownMs) return
             Log.d(TAG, "Porn app detected: $pkg — blocking")
             performGlobalAction(GLOBAL_ACTION_BACK)
@@ -184,7 +203,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         }
 
         // ── Layer 2: Browser — check URL / keywords ──────────────────
-        if (contentFilter.isBrowserApp(pkg)) {
+        if (pornBlockEnabled && contentFilter.isBrowserApp(pkg)) {
             if (now - lastPornBlockTime < pornCooldownMs) return
             val root = rootInActiveWindow ?: return
             try {

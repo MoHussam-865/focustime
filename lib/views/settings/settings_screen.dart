@@ -71,6 +71,25 @@ class _SettingsBody extends StatelessWidget {
                 ),
                 const Divider(),
 
+                // Content Filtering
+                const SizedBox(height: 8),
+                Text(
+                  'Content Filtering',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Block adult content'),
+                  subtitle: const Text(
+                    'Automatically block pornographic websites and apps',
+                  ),
+                  value: vm.settings.pornBlockEnabled,
+                  onChanged: vm.togglePornBlock,
+                ),
+                const Divider(),
+
                 // Monitored apps
                 const SizedBox(height: 8),
                 Text(

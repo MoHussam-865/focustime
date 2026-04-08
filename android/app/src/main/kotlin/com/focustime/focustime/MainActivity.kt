@@ -107,6 +107,16 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         }
                     }
+                    "setPornBlockEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled")
+                        if (enabled != null) {
+                            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            prefs.edit().putBoolean("flutter.porn_block_enabled", enabled).apply()
+                            result.success(true)
+                        } else {
+                            result.error("INVALID_ARG", "enabled argument is required", null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

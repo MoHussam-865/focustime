@@ -19,6 +19,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   static const _keyCooldownMs = 'cooldown_ms';
   static const _keyShowToast = 'show_toast';
   static const _keyBlockLog = 'block_log';
+  static const _keyPornBlock = 'porn_block_enabled';
   static const _keyOnboardingCompleted = 'onboarding_completed';
 
   final SharedPreferences _prefs;
@@ -57,6 +58,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
       cooldownMs: _prefs.getInt(_keyCooldownMs) ?? 2000,
       showToastOnBlock: _prefs.getBool(_keyShowToast) ?? true,
       blockLogEnabled: _prefs.getBool(_keyBlockLog) ?? true,
+      pornBlockEnabled: _prefs.getBool(_keyPornBlock) ?? true,
     );
   }
 
@@ -65,6 +67,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
     await _prefs.setInt(_keyCooldownMs, settings.cooldownMs);
     await _prefs.setBool(_keyShowToast, settings.showToastOnBlock);
     await _prefs.setBool(_keyBlockLog, settings.blockLogEnabled);
+    await _prefs.setBool(_keyPornBlock, settings.pornBlockEnabled);
   }
 
   @override
