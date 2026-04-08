@@ -1,10 +1,10 @@
-package com.focustime.focustime.receiver
+package com.matrixlab.focustime.receiver
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.focustime.focustime.service.BlockerForegroundService
+import com.matrixlab.focustime.service.BlockerForegroundService
 
 class BootReceiver : BroadcastReceiver() {
 

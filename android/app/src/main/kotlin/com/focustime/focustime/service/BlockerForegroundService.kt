@@ -1,4 +1,4 @@
-package com.focustime.focustime.service
+package com.matrixlab.focustime.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -9,8 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
-import com.focustime.focustime.MainActivity
-import com.focustime.focustime.R
+import com.matrixlab.focustime.MainActivity
+import com.matrixlab.focustime.R
 
 class BlockerForegroundService : Service() {
 

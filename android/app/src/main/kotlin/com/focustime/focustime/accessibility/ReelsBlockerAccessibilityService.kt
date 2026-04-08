@@ -1,4 +1,4 @@
-package com.focustime.focustime.accessibility
+package com.matrixlab.focustime.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -8,7 +8,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
-import com.focustime.focustime.service.BlockerForegroundService
+import com.matrixlab.focustime.service.BlockerForegroundService
 
 class ReelsBlockerAccessibilityService : AccessibilityService() {
 

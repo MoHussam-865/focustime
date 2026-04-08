@@ -7,5 +7,5 @@
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="300"
     android:packageNames="com.google.android.youtube,com.instagram.android,com.zhiliaoapp.musically,com.ss.android.ugc.trill,com.facebook.katana,com.snapchat.android"
-    android:settingsActivity="com.focustime.focustime.MainActivity"
+    android:settingsActivity="com.matrixlab.focustime.MainActivity"
     android:description="@string/accessibility_service_description" />

@@ -1,4 +1,4 @@
-package com.focustime.focustime
+package com.matrixlab.focustime
 
 import android.Manifest
 import android.content.ComponentName
@@ -13,7 +13,7 @@ import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.focustime.focustime.accessibility.ReelsBlockerAccessibilityService
+import com.matrixlab.focustime.accessibility.ReelsBlockerAccessibilityService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
