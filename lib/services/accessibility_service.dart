@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class AccessibilityService {
@@ -5,9 +6,12 @@ class AccessibilityService {
 
   Future<bool> isEnabled() async {
     try {
-      final result = await _channel.invokeMethod<bool>('isAccessibilityEnabled');
-      return result ?? false;
-    } on PlatformException {
+      final result = await _channel.invokeMethod('isAccessibilityEnabled');
+      debugPrint('FocusTime: isAccessibilityEnabled raw result=$result (${result.runtimeType})');
+      if (result is bool) return result;
+      return false;
+    } catch (e) {
+      debugPrint('FocusTime: isEnabled error: $e');
       return false;
     }
   }

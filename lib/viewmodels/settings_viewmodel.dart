@@ -21,8 +21,8 @@ class SettingsViewModel extends ChangeNotifier {
   SettingsViewModel({
     required AccessibilityService accessibilityService,
     required SettingsRepository settingsRepository,
-  })  : _accessibilityService = accessibilityService,
-        _settingsRepository = settingsRepository;
+  }) : _accessibilityService = accessibilityService,
+       _settingsRepository = settingsRepository;
 
   Future<void> loadSettings() async {
     _isLoading = true;
@@ -61,16 +61,27 @@ class SettingsViewModel extends ChangeNotifier {
   }
 
   Future<void> toggleApp(int index) async {
+    if (index < 0 || index >= _blockedApps.length) return;
+
     final app = _blockedApps[index];
+    // Create a new list so Flutter detects the change
+    _blockedApps = List<BlockedApp>.from(_blockedApps);
     _blockedApps[index] = app.copyWith(isEnabled: !app.isEnabled);
     notifyListeners();
 
-    await _settingsRepository.saveBlockedApps(_blockedApps);
+    try {
+      await _settingsRepository.saveBlockedApps(_blockedApps);
 
-    final enabledPackages = _blockedApps
-        .where((a) => a.isEnabled)
-        .map((a) => a.packageName)
-        .toList();
-    await _accessibilityService.setMonitoredApps(enabledPackages);
+      final enabledPackages = _blockedApps
+          .where((a) => a.isEnabled)
+          .map((a) => a.packageName)
+          .toList();
+      await _accessibilityService.setMonitoredApps(enabledPackages);
+    } catch (e) {
+      // Rollback on failure
+      _blockedApps = List<BlockedApp>.from(_blockedApps);
+      _blockedApps[index] = app;
+      notifyListeners();
+    }
   }
 }

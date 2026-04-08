@@ -38,10 +38,12 @@ class OnboardingViewModel extends ChangeNotifier {
 
   Future<void> openAccessibilitySettings() async {
     await _accessibilityService.openAccessibilitySettings();
+    await checkPermissions();
   }
 
   Future<void> requestBatteryOptimization() async {
     await _accessibilityService.requestBatteryOptimization();
+    await checkPermissions();
   }
 
   bool get allPermissionsGranted =>

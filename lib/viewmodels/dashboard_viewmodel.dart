@@ -39,7 +39,7 @@ class DashboardViewModel extends ChangeNotifier {
     try {
       _isServiceRunning = await _accessibilityService.isEnabled();
       _blockedCount = await _accessibilityService.getBlockedCount();
-      _blockedApps = await _settingsRepository.getBlockedApps();
+      _blockedApps = List<BlockedApp>.from(await _settingsRepository.getBlockedApps());
     } catch (e) {
       _errorMessage = 'Failed to load data';
     }
@@ -52,6 +52,7 @@ class DashboardViewModel extends ChangeNotifier {
     if (index < 0 || index >= _blockedApps.length) return;
 
     final originalApp = _blockedApps[index];
+    _blockedApps = List<BlockedApp>.from(_blockedApps);
     _blockedApps[index] = originalApp.copyWith(isEnabled: !originalApp.isEnabled);
     notifyListeners();
 
@@ -64,6 +65,7 @@ class DashboardViewModel extends ChangeNotifier {
           .toList();
       await _accessibilityService.setMonitoredApps(enabledPackages);
     } catch (e) {
+      _blockedApps = List<BlockedApp>.from(_blockedApps);
       _blockedApps[index] = originalApp;
       notifyListeners();
     }
@@ -71,5 +73,6 @@ class DashboardViewModel extends ChangeNotifier {
 
   Future<void> openAccessibilitySettings() async {
     await _accessibilityService.openAccessibilitySettings();
+    await loadData();
   }
 }

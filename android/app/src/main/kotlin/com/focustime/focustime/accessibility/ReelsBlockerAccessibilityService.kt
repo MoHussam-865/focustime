@@ -15,6 +15,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         private const val PREFS_NAME = "FlutterSharedPreferences"
         private const val KEY_COOLDOWN = "flutter.cooldown_ms"
         private const val KEY_BLOCKED_COUNT = "flutter.blocked_count"
+        private const val KEY_MONITORED_PACKAGES = "flutter.monitored_packages"
         private const val MAX_TREE_DEPTH = 15
     }
 
@@ -27,9 +28,35 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         "com.snapchat.android"
     )
 
-    private val reelsKeywords = listOf(
-        "shorts", "reel", "clips_viewer", "spotlight",
-        "reel_player", "short_video", "reels_viewer"
+    // TikTok packages are entirely short-form video — block when app is active
+    private val fullBlockPackages = setOf(
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill"
+    )
+
+    // View resource ID substrings that prove a shorts/reels PLAYER is on screen.
+    // These are specific to each app's player layout and won't match tab labels
+    // or navigation elements.
+    private val playerViewIdPatterns = listOf(
+        // YouTube Shorts player
+        "reel_player_page_container",
+        "reel_recycler",
+        "reel_multi_format_player",
+        "reel_player_overlay",
+        "shorts_player_controls",
+        "shorts_shelf",
+        // Instagram Reels player
+        "clips_viewer_view_pager",
+        "clips_viewer",
+        "reels_viewer_container",
+        "reel_viewer_subtitle",
+        // Facebook Reels player
+        "reel_player_container",
+        "reels_screen",
+        "reel_video_surface",
+        // Snapchat Spotlight player
+        "spotlight_feed_container",
+        "spotlight_player"
     )
 
     private var lastBlockTime = 0L
@@ -37,11 +64,49 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     private var monitoredPackages: Set<String> = targetPackages
     private lateinit var prefs: SharedPreferences
 
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            KEY_MONITORED_PACKAGES -> loadMonitoredPackages()
+            KEY_COOLDOWN -> cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        cooldownMs = prefs.getInt(KEY_COOLDOWN, 2000).toLong()
-        Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms")
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
+        loadMonitoredPackages()
+        Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms, Packages: $monitoredPackages")
+    }
+
+    private fun loadMonitoredPackages() {
+        try {
+            val value = prefs.all[KEY_MONITORED_PACKAGES]
+            monitoredPackages = when (value) {
+                is Set<*> -> value.filterIsInstance<String>().toSet().ifEmpty { targetPackages }
+                else -> targetPackages
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load monitored packages, using defaults", e)
+            monitoredPackages = targetPackages
+        }
+        Log.d(TAG, "Monitored packages updated: $monitoredPackages")
+    }
+
+    /** Safely read a Long from prefs, handling stale Int values */
+    private fun safeLong(key: String, default: Long): Long {
+        return try {
+            val value = prefs.all[key]
+            when (value) {
+                is Long -> value
+                is Int -> value.toLong()
+                is Number -> value.toLong()
+                else -> default
+            }
+        } catch (e: Exception) {
+            default
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -58,7 +123,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastBlockTime < cooldownMs) return
 
-        if (isReelsContent()) {
+        if (isReelsContent(pkg)) {
             Log.d(TAG, "Reels/Shorts detected in $pkg — blocking")
             performGlobalAction(GLOBAL_ACTION_BACK)
             lastBlockTime = now
@@ -72,7 +137,10 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun isReelsContent(): Boolean {
+    private fun isReelsContent(pkg: String): Boolean {
+        // TikTok apps are entirely short-form video — always block
+        if (pkg in fullBlockPackages) return true
+
         val root = rootInActiveWindow ?: return false
         val found = searchNodeTree(root, 0)
         return found
@@ -85,12 +153,14 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         }
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
-        val className = node.className?.toString()?.lowercase() ?: ""
 
-        for (keyword in reelsKeywords) {
-            if (keyword in viewId || keyword in contentDesc) {
-                Log.d(TAG, "Match found: keyword='$keyword' viewId='$viewId' desc='$contentDesc'")
+        // Only match on view resource IDs that belong to a shorts/reels PLAYER.
+        // We intentionally do NOT match on contentDescription or text, because
+        // generic labels like "Shorts" appear on navigation tabs even when the
+        // user is watching regular content.
+        for (pattern in playerViewIdPatterns) {
+            if (pattern in viewId) {
+                Log.d(TAG, "Player match: pattern='$pattern' viewId='$viewId'")
                 node.recycle()
                 return true
             }
@@ -114,8 +184,8 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun incrementBlockedCount() {
-        val count = prefs.getInt(KEY_BLOCKED_COUNT, 0) + 1
-        prefs.edit().putInt(KEY_BLOCKED_COUNT, count).apply()
+        val count = safeLong(KEY_BLOCKED_COUNT, 0L) + 1
+        prefs.edit().putLong(KEY_BLOCKED_COUNT, count).apply()
     }
 
     fun updateMonitoredPackages(packages: List<String>) {
@@ -133,6 +203,9 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        if (::prefs.isInitialized) {
+            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        }
         super.onDestroy()
         Log.d(TAG, "Accessibility Service destroyed")
     }
