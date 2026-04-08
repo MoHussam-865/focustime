@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/blocked_app.dart';
@@ -15,7 +17,7 @@ class DashboardViewModel extends ChangeNotifier {
   int get blockedCount => _blockedCount;
 
   List<BlockedApp> _blockedApps = [];
-  List<BlockedApp> get blockedApps => _blockedApps;
+  List<BlockedApp> get blockedApps => UnmodifiableListView(_blockedApps);
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -47,17 +49,24 @@ class DashboardViewModel extends ChangeNotifier {
   }
 
   Future<void> toggleApp(int index) async {
-    final app = _blockedApps[index];
-    _blockedApps[index] = app.copyWith(isEnabled: !app.isEnabled);
+    if (index < 0 || index >= _blockedApps.length) return;
+
+    final originalApp = _blockedApps[index];
+    _blockedApps[index] = originalApp.copyWith(isEnabled: !originalApp.isEnabled);
     notifyListeners();
 
-    await _settingsRepository.saveBlockedApps(_blockedApps);
+    try {
+      await _settingsRepository.saveBlockedApps(_blockedApps);
 
-    final enabledPackages = _blockedApps
-        .where((a) => a.isEnabled)
-        .map((a) => a.packageName)
-        .toList();
-    await _accessibilityService.setMonitoredApps(enabledPackages);
+      final enabledPackages = _blockedApps
+          .where((a) => a.isEnabled)
+          .map((a) => a.packageName)
+          .toList();
+      await _accessibilityService.setMonitoredApps(enabledPackages);
+    } catch (e) {
+      _blockedApps[index] = originalApp;
+      notifyListeners();
+    }
   }
 
   Future<void> openAccessibilitySettings() async {

@@ -75,7 +75,11 @@ class OnboardingScreen extends StatelessWidget {
                 FilledButton(
                   onPressed: vm.allPermissionsGranted
                       ? () async {
-                          await vm.completeOnboarding();
+                          try {
+                            await vm.completeOnboarding();
+                          } catch (_) {
+                            // Continue even if persistence fails
+                          }
                           onComplete();
                         }
                       : null,
@@ -84,7 +88,11 @@ class OnboardingScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () async {
-                    await vm.completeOnboarding();
+                    try {
+                      await vm.completeOnboarding();
+                    } catch (_) {
+                      // Continue even if persistence fails
+                    }
                     onComplete();
                   },
                   child: const Text('Skip for now'),

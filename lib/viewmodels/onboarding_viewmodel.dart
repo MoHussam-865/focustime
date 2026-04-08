@@ -26,12 +26,14 @@ class OnboardingViewModel extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _isAccessibilityEnabled = await _accessibilityService.isEnabled();
-    _isBatteryOptimized =
-        await _accessibilityService.isIgnoringBatteryOptimizations();
-
-    _isLoading = false;
-    notifyListeners();
+    try {
+      _isAccessibilityEnabled = await _accessibilityService.isEnabled();
+      _isBatteryOptimized =
+          await _accessibilityService.isIgnoringBatteryOptimizations();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> openAccessibilitySettings() async {

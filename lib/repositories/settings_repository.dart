@@ -31,10 +31,18 @@ class SettingsRepositoryImpl implements SettingsRepository {
     if (jsonString == null) {
       return BlockedApp.defaults();
     }
-    final List<dynamic> jsonList = json.decode(jsonString) as List<dynamic>;
-    return jsonList
-        .map((e) => BlockedApp.fromJson(e as Map<String, dynamic>))
-        .toList();
+    try {
+      final List<dynamic> jsonList = json.decode(jsonString) as List<dynamic>;
+      return jsonList
+          .map((e) => BlockedApp.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on FormatException {
+      await _prefs.remove(_keyBlockedApps);
+      return BlockedApp.defaults();
+    } catch (_) {
+      await _prefs.remove(_keyBlockedApps);
+      return BlockedApp.defaults();
+    }
   }
 
   @override

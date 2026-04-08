@@ -29,5 +29,18 @@ void main() {
       expect(updated.showToastOnBlock, false);
       expect(updated.blockLogEnabled, false);
     });
+
+    test('equality for identical values', () {
+      const a = AppSettings(cooldownMs: 2000);
+      const b = AppSettings(cooldownMs: 2000);
+      expect(a, equals(b));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('inequality for different values', () {
+      const a = AppSettings(cooldownMs: 2000);
+      const b = AppSettings(cooldownMs: 3000);
+      expect(a, isNot(equals(b)));
+    });
   });
 }

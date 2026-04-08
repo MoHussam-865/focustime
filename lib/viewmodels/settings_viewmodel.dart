@@ -28,11 +28,16 @@ class SettingsViewModel extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _settings = await _settingsRepository.getSettings();
-    _blockedApps = await _settingsRepository.getBlockedApps();
-
-    _isLoading = false;
-    notifyListeners();
+    try {
+      _settings = await _settingsRepository.getSettings();
+      _blockedApps = await _settingsRepository.getBlockedApps();
+    } catch (_) {
+      _settings = const AppSettings();
+      _blockedApps = BlockedApp.defaults();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> updateCooldown(int cooldownMs) async {

@@ -18,7 +18,15 @@ class BootReceiver : BroadcastReceiver() {
         ) {
             Log.d(TAG, "Boot completed — starting foreground service")
             val serviceIntent = Intent(context, BlockerForegroundService::class.java)
-            context.startForegroundService(serviceIntent)
+            try {
+                context.startForegroundService(serviceIntent)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Failed to start foreground service: SecurityException", e)
+            } catch (e: IllegalStateException) {
+                Log.e(TAG, "Failed to start foreground service: IllegalStateException", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start foreground service", e)
+            }
         }
     }
 }

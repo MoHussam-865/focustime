@@ -17,7 +17,7 @@ Implemented the MethodChannel bridge in MainActivity.kt connecting Flutter UI to
 |---|---|---|
 | isAccessibilityEnabled | Flutter -> Native | Checks Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES |
 | openAccessibilitySettings | Flutter -> Native | Launches ACTION_ACCESSIBILITY_SETTINGS intent |
-| requestBatteryOptimization | Flutter -> Native | Launches ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS |
+| requestBatteryOptimization | Flutter -> Native | Requests battery optimization exemption (launches ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) |
 | isIgnoringBatteryOptimizations | Flutter -> Native | Queries PowerManager |
 | getBlockedCount | Flutter -> Native | Reads from SharedPreferences |
 | setMonitoredApps | Flutter -> Native | Stores package set in SharedPreferences |

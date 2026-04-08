@@ -10,6 +10,8 @@ import '../viewmodels/settings_viewmodel.dart';
 final getIt = GetIt.instance;
 
 Future<void> setupDependencies() async {
+  if (getIt.isRegistered<SharedPreferences>()) return;
+
   // External
   final prefs = await SharedPreferences.getInstance();
   getIt.registerSingleton<SharedPreferences>(prefs);

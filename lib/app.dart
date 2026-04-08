@@ -53,7 +53,9 @@ class _EntryPointState extends State<_EntryPoint> {
   Future<void> _checkOnboarding() async {
     final repo = getIt<SettingsRepository>();
     final completed = await repo.isOnboardingCompleted();
-    setState(() => _onboardingCompleted = completed);
+    if (mounted) {
+      setState(() => _onboardingCompleted = completed);
+    }
   }
 
   @override

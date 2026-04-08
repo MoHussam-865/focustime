@@ -12,11 +12,12 @@ class AccessibilityService {
     }
   }
 
-  Future<void> openAccessibilitySettings() async {
+  Future<bool> openAccessibilitySettings() async {
     try {
       await _channel.invokeMethod<bool>('openAccessibilitySettings');
+      return true;
     } on PlatformException {
-      // Settings could not be opened
+      return false;
     }
   }
 
@@ -30,11 +31,12 @@ class AccessibilityService {
     }
   }
 
-  Future<void> requestBatteryOptimization() async {
+  Future<bool> requestBatteryOptimization() async {
     try {
       await _channel.invokeMethod<bool>('requestBatteryOptimization');
+      return true;
     } on PlatformException {
-      // Request could not be made
+      return false;
     }
   }
 
@@ -47,25 +49,34 @@ class AccessibilityService {
     }
   }
 
-  Future<void> setMonitoredApps(List<String> packageNames) async {
+  Future<bool> setMonitoredApps(List<String> packageNames) async {
     try {
-      await _channel.invokeMethod<bool>(
+      final result = await _channel.invokeMethod<bool>(
         'setMonitoredApps',
         {'packages': packageNames},
       );
+      return result ?? false;
     } on PlatformException {
-      // Could not update monitored apps
+      return false;
     }
   }
 
-  Future<void> setCooldown(int cooldownMs) async {
+  Future<bool> setCooldown(int cooldownMs) async {
+    if (cooldownMs < 0) {
+      throw ArgumentError.value(
+        cooldownMs,
+        'cooldownMs',
+        'must be non-negative',
+      );
+    }
     try {
-      await _channel.invokeMethod<bool>(
+      final result = await _channel.invokeMethod<bool>(
         'setCooldown',
         {'cooldownMs': cooldownMs},
       );
+      return result ?? false;
     } on PlatformException {
-      // Could not update cooldown
+      return false;
     }
   }
 }

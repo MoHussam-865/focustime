@@ -28,4 +28,4 @@ Implemented the onboarding screen with a multi-step permission wizard that guide
 
 ## Known Issues
 
-- Android 13+ notification permission not yet handled as runtime permission (uses system prompt only)
+- Android 13+ notification permission (POST_NOTIFICATIONS) is not yet handled as a runtime permission. On targetSdk >= 33, a dedicated runtime flow should be added: check/request the POST_NOTIFICATIONS permission during onboarding, handle rationale and permanently-denied states (direct user to app settings), and update the onboarding UI to include a notification permission step. Currently relies on the system-level prompt only.

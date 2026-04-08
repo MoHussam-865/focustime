@@ -63,28 +63,65 @@ void main() {
       expect(log.last.method, 'getBlockedCount');
     });
 
-    test('openAccessibilitySettings calls native method', () async {
-      await service.openAccessibilitySettings();
+    test('openAccessibilitySettings returns true on success', () async {
+      final result = await service.openAccessibilitySettings();
+      expect(result, true);
       expect(log.last.method, 'openAccessibilitySettings');
     });
 
-    test('requestBatteryOptimization calls native method', () async {
-      await service.requestBatteryOptimization();
+    test('openAccessibilitySettings returns false on PlatformException',
+        () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.focustime/accessibility'),
+        (MethodCall methodCall) async {
+          throw PlatformException(code: 'ERROR');
+        },
+      );
+
+      final result = await service.openAccessibilitySettings();
+      expect(result, false);
+    });
+
+    test('requestBatteryOptimization returns true on success', () async {
+      final result = await service.requestBatteryOptimization();
+      expect(result, true);
       expect(log.last.method, 'requestBatteryOptimization');
     });
 
-    test('setMonitoredApps sends package list', () async {
-      await service.setMonitoredApps(['com.google.android.youtube']);
+    test('setMonitoredApps returns true on success', () async {
+      final result =
+          await service.setMonitoredApps(['com.google.android.youtube']);
+      expect(result, true);
       expect(log.last.method, 'setMonitoredApps');
       expect(log.last.arguments, {
         'packages': ['com.google.android.youtube'],
       });
     });
 
+    test('setMonitoredApps returns false on PlatformException', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.focustime/accessibility'),
+        (MethodCall methodCall) async {
+          throw PlatformException(code: 'ERROR');
+        },
+      );
+
+      final result =
+          await service.setMonitoredApps(['com.google.android.youtube']);
+      expect(result, false);
+    });
+
     test('setCooldown sends cooldown value', () async {
-      await service.setCooldown(3000);
+      final result = await service.setCooldown(3000);
+      expect(result, true);
       expect(log.last.method, 'setCooldown');
       expect(log.last.arguments, {'cooldownMs': 3000});
+    });
+
+    test('setCooldown throws ArgumentError for negative value', () async {
+      expect(() => service.setCooldown(-1), throwsArgumentError);
     });
 
     test('isEnabled returns false on PlatformException', () async {

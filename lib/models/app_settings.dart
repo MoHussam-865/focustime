@@ -20,4 +20,16 @@ class AppSettings {
       blockLogEnabled: blockLogEnabled ?? this.blockLogEnabled,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AppSettings &&
+          runtimeType == other.runtimeType &&
+          cooldownMs == other.cooldownMs &&
+          showToastOnBlock == other.showToastOnBlock &&
+          blockLogEnabled == other.blockLogEnabled;
+
+  @override
+  int get hashCode => Object.hash(cooldownMs, showToastOnBlock, blockLogEnabled);
 }

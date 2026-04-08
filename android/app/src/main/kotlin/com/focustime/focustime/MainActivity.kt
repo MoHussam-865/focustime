@@ -40,7 +40,8 @@ class MainActivity : FlutterActivity() {
                     }
                     "getBlockedCount" -> {
                         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                        result.success(prefs.getInt(KEY_BLOCKED_COUNT, 0))
+                        val count = prefs.getLong(KEY_BLOCKED_COUNT, 0L)
+                        result.success(count.toInt())
                     }
                     "setMonitoredApps" -> {
                         val packages = call.argument<List<String>>("packages")
@@ -76,7 +77,7 @@ class MainActivity : FlutterActivity() {
             contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
-        return enabledServices.contains(service)
+        return enabledServices.split(':').any { it.equals(service, ignoreCase = true) }
     }
 
     private fun requestIgnoreBatteryOptimization() {

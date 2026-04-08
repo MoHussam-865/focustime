@@ -12,7 +12,7 @@ Implemented the settings screen with cooldown slider, toggle switches, and per-a
 - `lib/views/settings/settings_screen.dart` - Settings UI with slider and toggles
 - `lib/viewmodels/settings_viewmodel.dart` - Settings state management
 
-### Created (Phase 1)
+### Referenced from Phase 1
 - `lib/repositories/settings_repository.dart` - SharedPreferences persistence
 - `lib/models/app_settings.dart` - Settings data model
 
