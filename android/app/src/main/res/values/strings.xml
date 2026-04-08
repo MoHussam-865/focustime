@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">FocusTime monitors your screen to detect and block short-form video content (Reels, Shorts) in supported apps. This helps you stay focused by automatically navigating away from distracting content.</string>
+</resources>

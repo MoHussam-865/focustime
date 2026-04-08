@@ -1,42 +1,31 @@
-# Phase 4: Permission Flow & Onboarding
+# Phase 4: Permission Flow and Onboarding
 
-**Status:** Not Started
+**Status:** Completed
 
 ## Summary
 
-Implement the onboarding screen that guides users through enabling all required permissions: Accessibility Service, battery optimization bypass, and notifications.
-
-## Planned Changes
-
-### Views
-
-- `OnboardingScreen` — Multi-step permission wizard
-- Each step shows permission status (enabled/disabled) with a button to open the relevant settings
-
-### ViewModel
-
-- `OnboardingViewModel` — Tracks permission states, refreshes on app resume via `AppLifecycleState`
-
-### Permission Steps
-
-1. **Accessibility Service** — Explain purpose → open Accessibility Settings
-2. **Battery Optimization** — Explain purpose → trigger exemption dialog
-3. **Notifications** (Android 13+) — Standard runtime permission request
-
-### UX
-
-- Permission statuses refresh automatically when returning from system settings
-- "Continue" button only enabled when all required permissions are granted
-- Skip option with warning for non-critical permissions
+Implemented the onboarding screen with a multi-step permission wizard that guides users through enabling Accessibility Service and Battery Optimization bypass.
 
 ## Files Changed
 
-_To be filled after implementation._
+### Created
+- `lib/views/onboarding/onboarding_screen.dart` - Full onboarding UI
+- `lib/viewmodels/onboarding_viewmodel.dart` - Permission state management
+
+## Features
+
+- Permission status cards with green check/gray circle indicators
+- Tapping a disabled permission opens the relevant system settings
+- Refresh Status button to recheck permissions after returning from settings
+- Continue button enabled only when all permissions granted
+- Skip for now option for users who want to configure later
+- ChangeNotifier-based state with isLoading indicator
 
 ## Key Decisions
 
-_To be filled after implementation._
+- AppLifecycleState.resumed handling in DashboardScreen (not onboarding) to auto-refresh on return
+- Skip option provided to avoid blocking users from exploring the app
 
 ## Known Issues
 
-_To be filled after implementation._
+- Android 13+ notification permission not yet handled as runtime permission (uses system prompt only)

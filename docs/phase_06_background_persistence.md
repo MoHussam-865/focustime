@@ -1,39 +1,36 @@
 # Phase 6: Background Persistence
 
-**Status:** Not Started
+**Status:** Completed
 
 ## Summary
 
-Implement foreground service and boot receiver to ensure the blocking service survives app closure and device reboots.
-
-## Planned Changes
-
-### Native Files
-
-- `BlockerForegroundService.kt` — Persistent notification service with `START_STICKY`
-- `BootReceiver.kt` — BroadcastReceiver for `BOOT_COMPLETED` and `QUICKBOOT_POWERON`
-- Notification channel creation for foreground service
-
-### Manifest Updates
-
-- Register `BlockerForegroundService` with `foregroundServiceType="specialUse"`
-- Register `BootReceiver` with boot intent filters
-
-### Behavior
-
-- Foreground service starts when user enables blocking
-- Persistent notification shows "FocusTime Active — Blocking reels & shorts"
-- Boot receiver ensures foreground service restarts after reboot
-- Accessibility Service auto-restarts by OS if enabled
+Implemented foreground service and boot receiver for background persistence across app closure and device reboots.
 
 ## Files Changed
 
-_To be filled after implementation._
+### Created
+- `android/app/src/main/kotlin/com/focustime/focustime/service/BlockerForegroundService.kt`
+- `android/app/src/main/kotlin/com/focustime/focustime/receiver/BootReceiver.kt`
+
+### Previously Modified (Phase 1)
+- `AndroidManifest.xml` - Service and receiver already declared
+
+## Features
+
+- **BlockerForegroundService**: START_STICKY foreground service with persistent notification
+- Notification channel created with IMPORTANCE_LOW to minimize user disruption
+- PendingIntent opens MainActivity when notification is tapped
+- **BootReceiver**: Catches BOOT_COMPLETED and QUICKBOOT_POWERON, starts foreground service
+- Uses startForegroundService() for Android 8+ compatibility
+- foregroundServiceType=specialUse declared in manifest for Android 14+
 
 ## Key Decisions
 
-_To be filled after implementation._
+- Foreground service uses system lock icon as placeholder (can be replaced with custom icon)
+- Notification importance set to LOW to avoid sound/vibration
+- START_STICKY ensures service restarts if killed by system
 
 ## Known Issues
 
-_To be filled after implementation._
+- Custom notification icon should be added before release
+- OEM-specific autostart whitelisting not automated (user guidance needed)

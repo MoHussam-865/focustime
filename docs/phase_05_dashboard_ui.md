@@ -1,37 +1,33 @@
 # Phase 5: Dashboard UI
 
-**Status:** Not Started
+**Status:** Completed
 
 ## Summary
 
-Build the main dashboard screen showing service status, block statistics, and quick controls.
-
-## Planned Changes
-
-### Views
-
-- `DashboardScreen` — Main app screen after onboarding
-
-### ViewModel
-
-- `DashboardViewModel` — Service status, block count, monitored apps list
-
-### UI Elements
-
-- Service status indicator (ON/OFF with color)
-- Blocked count (today / total)
-- List of monitored apps with toggle switches
-- Quick-action button to open Accessibility Settings if service is disabled
-- Pull-to-refresh for status check
+Built the main dashboard screen with service status indicator, block counter, and monitored apps list with toggle switches.
 
 ## Files Changed
 
-_To be filled after implementation._
+### Created
+- `lib/views/dashboard/dashboard_screen.dart` - Full dashboard with status, stats, and app toggles
+- `lib/viewmodels/dashboard_viewmodel.dart` - Dashboard state management
+
+## Features
+
+- Large status card: green (Protection Active) or red (Protection Disabled)
+- Enable service button shown when service is disabled
+- Block count display with icon
+- Monitored apps list with SwitchListTile for each app
+- Pull-to-refresh to reload all data
+- WidgetsBindingObserver auto-refreshes on app resume (returning from settings)
+- Settings gear icon in AppBar navigates to SettingsScreen
+- Error message display
 
 ## Key Decisions
 
-_To be filled after implementation._
+- ChangeNotifierProvider created at DashboardScreen level, not globally
+- loadData() called on creation and on resume for always-fresh state
 
 ## Known Issues
 
-_To be filled after implementation._
+- None

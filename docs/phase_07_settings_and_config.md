@@ -1,48 +1,36 @@
-# Phase 7: Settings & Configuration
+# Phase 7: Settings and Configuration
 
-**Status:** Not Started
+**Status:** Completed
 
 ## Summary
 
-Implement the settings screen for app customization: per-app toggles, cooldown duration, toast preferences, and block log.
-
-## Planned Changes
-
-### Views
-
-- `SettingsScreen` — User configuration UI
-
-### ViewModel
-
-- `SettingsViewModel` — Read/write settings via repository
-
-### Repository
-
-- `SettingsRepository` / `SettingsRepositoryImpl` — SharedPreferences-backed persistence
-
-### Settings
-
-| Setting | Type | Default |
-|---|---|---|
-| Monitored apps (per-app toggle) | `Map<String, bool>` | All enabled |
-| Cooldown duration | `int` (ms) | 2000 |
-| Show toast on block | `bool` | true |
-| Block log enabled | `bool` | true |
-
-### Data Flow
-
-- Settings changes saved to SharedPreferences immediately
-- Updated app list sent to native service via MethodChannel
-- Cooldown value read by Accessibility Service from SharedPreferences (native side)
+Implemented the settings screen with cooldown slider, toggle switches, and per-app monitoring controls.
 
 ## Files Changed
 
-_To be filled after implementation._
+### Created
+- `lib/views/settings/settings_screen.dart` - Settings UI with slider and toggles
+- `lib/viewmodels/settings_viewmodel.dart` - Settings state management
+
+### Created (Phase 1)
+- `lib/repositories/settings_repository.dart` - SharedPreferences persistence
+- `lib/models/app_settings.dart` - Settings data model
+
+## Features
+
+- Cooldown duration slider (0.5s to 5.0s in 0.5s steps)
+- Show toast on block toggle
+- Block log enabled toggle
+- Per-app monitoring toggles
+- Changes saved immediately to SharedPreferences
+- Cooldown and monitored apps pushed to native via MethodChannel
 
 ## Key Decisions
 
-_To be filled after implementation._
+- Settings changes are applied immediately (no save button)
+- Slider uses divisions for discrete steps
+- SettingsViewModel manages both AppSettings and BlockedApps list
 
 ## Known Issues
 
-_To be filled after implementation._
+- None

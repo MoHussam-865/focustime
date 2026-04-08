@@ -1,42 +1,33 @@
 # Phase 3: Method Channel Bridge
 
-**Status:** Not Started
+**Status:** Completed
 
 ## Summary
 
-Implement the MethodChannel and EventChannel bridge between Flutter and native Android to query service status, manage permissions, and receive block events.
-
-## Planned Changes
-
-### Native Side (`MainActivity.kt`)
-
-- Register MethodChannel `com.focustime/accessibility`
-- Implement handlers:
-  - `isAccessibilityEnabled` — Check if the service is active
-  - `openAccessibilitySettings` — Launch system accessibility settings
-  - `requestBatteryOptimization` — Request battery optimization exemption
-  - `isIgnoringBatteryOptimizations` — Check exemption status
-  - `getBlockedCount` — Return total blocks performed
-  - `setMonitoredApps` — Update the list of apps to monitor
-
-### Flutter Side (`lib/services/`)
-
-- `AccessibilityService` — Dart wrapper around the MethodChannel
-- `PermissionService` — Encapsulates all permission-related channel calls
-
-### Contract
-
-- All channel calls wrapped in try/catch for `PlatformException`
-- ViewModels never call MethodChannel directly
+Implemented the MethodChannel bridge in MainActivity.kt connecting Flutter UI to native Android. All accessibility, battery, and configuration methods are exposed.
 
 ## Files Changed
 
-_To be filled after implementation._
+### Modified
+- `android/app/src/main/kotlin/com/focustime/focustime/MainActivity.kt` - Full MethodChannel implementation
+
+## Implemented Methods
+
+| Method | Direction | Implementation |
+|---|---|---|
+| isAccessibilityEnabled | Flutter -> Native | Checks Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES |
+| openAccessibilitySettings | Flutter -> Native | Launches ACTION_ACCESSIBILITY_SETTINGS intent |
+| requestBatteryOptimization | Flutter -> Native | Launches ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS |
+| isIgnoringBatteryOptimizations | Flutter -> Native | Queries PowerManager |
+| getBlockedCount | Flutter -> Native | Reads from SharedPreferences |
+| setMonitoredApps | Flutter -> Native | Stores package set in SharedPreferences |
+| setCooldown | Flutter -> Native | Stores cooldown in SharedPreferences |
 
 ## Key Decisions
 
-_To be filled after implementation._
+- SharedPreferences used as the communication bridge between MethodChannel and AccessibilityService
+- Service identification uses full component name with .accessibility prefix
 
 ## Known Issues
 
-_To be filled after implementation._
+- None
