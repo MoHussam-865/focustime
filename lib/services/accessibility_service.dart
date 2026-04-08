@@ -7,7 +7,9 @@ class AccessibilityService {
   Future<bool> isEnabled() async {
     try {
       final result = await _channel.invokeMethod('isAccessibilityEnabled');
-      debugPrint('FocusTime: isAccessibilityEnabled raw result=$result (${result.runtimeType})');
+      debugPrint(
+        'FocusTime: isAccessibilityEnabled raw result=$result (${result.runtimeType})',
+      );
       if (result is bool) return result;
       return false;
     } catch (e) {
@@ -27,8 +29,9 @@ class AccessibilityService {
 
   Future<bool> isIgnoringBatteryOptimizations() async {
     try {
-      final result =
-          await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      final result = await _channel.invokeMethod<bool>(
+        'isIgnoringBatteryOptimizations',
+      );
       return result ?? false;
     } on PlatformException {
       return false;
@@ -55,10 +58,9 @@ class AccessibilityService {
 
   Future<bool> setMonitoredApps(List<String> packageNames) async {
     try {
-      final result = await _channel.invokeMethod<bool>(
-        'setMonitoredApps',
-        {'packages': packageNames},
-      );
+      final result = await _channel.invokeMethod<bool>('setMonitoredApps', {
+        'packages': packageNames,
+      });
       return result ?? false;
     } on PlatformException {
       return false;
@@ -74,12 +76,33 @@ class AccessibilityService {
       );
     }
     try {
-      final result = await _channel.invokeMethod<bool>(
-        'setCooldown',
-        {'cooldownMs': cooldownMs},
-      );
+      final result = await _channel.invokeMethod<bool>('setCooldown', {
+        'cooldownMs': cooldownMs,
+      });
       return result ?? false;
     } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> hasNotificationPermission() async {
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'hasNotificationPermission',
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'requestNotificationPermission',
+      );
+      return result ?? false;
+    } catch (_) {
       return false;
     }
   }

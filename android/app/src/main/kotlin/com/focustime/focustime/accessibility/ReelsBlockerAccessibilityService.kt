@@ -2,11 +2,13 @@ package com.focustime.focustime.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import com.focustime.focustime.service.BlockerForegroundService
 
 class ReelsBlockerAccessibilityService : AccessibilityService() {
 
@@ -77,7 +79,28 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
         loadMonitoredPackages()
+        startBlockerService()
         Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms, Packages: $monitoredPackages")
+    }
+
+    private fun startBlockerService() {
+        try {
+            val serviceIntent = Intent(this, BlockerForegroundService::class.java)
+            startForegroundService(serviceIntent)
+            Log.d(TAG, "Foreground service started")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start foreground service", e)
+        }
+    }
+
+    private fun stopBlockerService() {
+        try {
+            val serviceIntent = Intent(this, BlockerForegroundService::class.java)
+            stopService(serviceIntent)
+            Log.d(TAG, "Foreground service stopped")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop foreground service", e)
+        }
     }
 
     private fun loadMonitoredPackages() {
@@ -206,6 +229,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         if (::prefs.isInitialized) {
             prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         }
+        stopBlockerService()
         super.onDestroy()
         Log.d(TAG, "Accessibility Service destroyed")
     }

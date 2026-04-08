@@ -13,14 +13,17 @@ class OnboardingViewModel extends ChangeNotifier {
   bool _isBatteryOptimized = false;
   bool get isBatteryOptimizationDisabled => _isBatteryOptimized;
 
+  bool _hasNotificationPermission = false;
+  bool get hasNotificationPermission => _hasNotificationPermission;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
   OnboardingViewModel({
     required AccessibilityService accessibilityService,
     required SettingsRepository settingsRepository,
-  })  : _accessibilityService = accessibilityService,
-        _settingsRepository = settingsRepository;
+  }) : _accessibilityService = accessibilityService,
+       _settingsRepository = settingsRepository;
 
   Future<void> checkPermissions() async {
     _isLoading = true;
@@ -28,8 +31,10 @@ class OnboardingViewModel extends ChangeNotifier {
 
     try {
       _isAccessibilityEnabled = await _accessibilityService.isEnabled();
-      _isBatteryOptimized =
-          await _accessibilityService.isIgnoringBatteryOptimizations();
+      _isBatteryOptimized = await _accessibilityService
+          .isIgnoringBatteryOptimizations();
+      _hasNotificationPermission = await _accessibilityService
+          .hasNotificationPermission();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -46,8 +51,15 @@ class OnboardingViewModel extends ChangeNotifier {
     await checkPermissions();
   }
 
+  Future<void> requestNotificationPermission() async {
+    await _accessibilityService.requestNotificationPermission();
+    await checkPermissions();
+  }
+
   bool get allPermissionsGranted =>
-      _isAccessibilityEnabled && _isBatteryOptimized;
+      _isAccessibilityEnabled &&
+      _isBatteryOptimized &&
+      _hasNotificationPermission;
 
   Future<void> completeOnboarding() async {
     await _settingsRepository.setOnboardingCompleted(true);

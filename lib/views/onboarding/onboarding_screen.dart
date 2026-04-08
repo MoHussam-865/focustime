@@ -78,6 +78,17 @@ class OnboardingScreen extends StatelessWidget {
                         await vm.requestBatteryOptimization();
                       },
                     ),
+                    const SizedBox(height: 16),
+                    _PermissionTile(
+                      icon: Icons.notifications_active_rounded,
+                      title: 'Notifications',
+                      subtitle:
+                          'Shows a persistent notification so the system keeps the blocker alive.',
+                      isEnabled: vm.hasNotificationPermission,
+                      onTap: () async {
+                        await vm.requestNotificationPermission();
+                      },
+                    ),
                   ],
                 ),
               ),

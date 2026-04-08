@@ -1,13 +1,18 @@
 package com.focustime.focustime
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.focustime.focustime.accessibility.ReelsBlockerAccessibilityService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,7 +24,10 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "com.focustime/accessibility"
         private const val PREFS_NAME = "FlutterSharedPreferences"
         private const val KEY_BLOCKED_COUNT = "flutter.blocked_count"
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
     }
+
+    private var notificationPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -76,9 +84,41 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_ARG", "cooldownMs argument is required", null)
                         }
                     }
+                    "requestNotificationPermission" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                                result.success(true)
+                            } else {
+                                notificationPermissionResult = result
+                                ActivityCompat.requestPermissions(
+                                    this,
+                                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                                )
+                            }
+                        } else {
+                            result.success(true)
+                        }
+                    }
+                    "hasNotificationPermission" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            result.success(ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                        } else {
+                            result.success(true)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            notificationPermissionResult?.success(granted)
+            notificationPermissionResult = null
+        }
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
