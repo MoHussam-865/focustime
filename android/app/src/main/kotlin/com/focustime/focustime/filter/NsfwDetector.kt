@@ -40,8 +40,14 @@ class NsfwDetector(private val context: Context) {
         private const val NUM_DETECTIONS = 2100
         private const val NUM_CLASSES = 5
         private const val BOX_COORDS = 4
-        // Detection thresholds
-        private const val CONFIDENCE_THRESHOLD = 0.25f
+        // Per-class detection thresholds
+        private val CLASS_THRESHOLDS = floatArrayOf(
+            0.05f,  // anus
+            0.25f,  // make_love
+            0.05f,  // nipple
+            0.05f,  // penis
+            0.05f   // vagina
+        )
         private const val IOU_THRESHOLD = 0.45f
     }
 
@@ -268,7 +274,8 @@ class NsfwDetector(private val context: Context) {
             )
             allCandidates.add(det)
             
-            if (maxScore >= CONFIDENCE_THRESHOLD) {
+            val threshold = CLASS_THRESHOLDS.getOrElse(maxClass) { 0.05f }
+            if (maxScore >= threshold) {
                 results.add(det)
             }
         }
@@ -284,7 +291,7 @@ class NsfwDetector(private val context: Context) {
             Log.d(TAG, "Class ${classLabel(c)}: count=$count, avg=%.4f, min=%.4f, max=%.4f, sum=%.2f".format(
                 avg, min, max, sum))
         }
-        Log.d(TAG, "Detections PASSED threshold ($CONFIDENCE_THRESHOLD): ${results.size} / $NUM_DETECTIONS")
+        Log.d(TAG, "Detections PASSED per-class thresholds: ${results.size} / $NUM_DETECTIONS")
 
         // Return top 20 by confidence for debug drawing
         val top20 = allCandidates.sortedByDescending { it.confidence }.take(20)
