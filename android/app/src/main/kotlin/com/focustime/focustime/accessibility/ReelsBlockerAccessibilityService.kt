@@ -462,12 +462,17 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
 
                         Log.d(TAG, "AI scan: screenshot ${softBmp.width}x${softBmp.height} for $pkg (hash=$currentHash)")
 
-                        val nsfw = detector.detect(softBmp)
+                        val result = detector.detect(softBmp)
+
+                        // DEBUG: save annotated image to /sdcard/blocked/
+                        detector.saveDebugImage(softBmp, result)
+
                         softBmp.recycle()
 
-                        if (nsfw) {
-                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — blocking")
-                            performGlobalAction(GLOBAL_ACTION_BACK)
+                        if (result.isUnsafe) {
+                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — closing app")
+                            // Go home to close the app entirely
+                            performGlobalAction(GLOBAL_ACTION_HOME)
                             lastPornBlockTime = System.currentTimeMillis()
                             incrementBlockedCount()
                             android.os.Handler(mainLooper).post {

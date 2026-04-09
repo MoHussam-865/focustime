@@ -2,7 +2,15 @@ package com.matrixlab.focustime.filter
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
@@ -23,7 +31,7 @@ import java.nio.channels.FileChannel
  *
  * We transpose to [2100, 9] and apply confidence + NMS filtering.
  */
-class NsfwDetector(context: Context) {
+class NsfwDetector(private val context: Context) {
 
     companion object {
         private const val TAG = "NsfwDetector"
@@ -33,7 +41,7 @@ class NsfwDetector(context: Context) {
         private const val NUM_CLASSES = 5
         private const val BOX_COORDS = 4
         // Detection thresholds
-        private const val CONFIDENCE_THRESHOLD = 0.0025f
+        private const val CONFIDENCE_THRESHOLD = 0.25f
         private const val IOU_THRESHOLD = 0.45f
     }
 
@@ -80,12 +88,19 @@ class NsfwDetector(context: Context) {
         return channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
     }
 
+    data class DetectionResult(
+        val isUnsafe: Boolean,
+        val detections: List<Detection>,       // NMS-filtered, above threshold
+        val allDetections: List<Detection>,    // Top raw detections for debug drawing
+        val detectedClasses: Set<Int>
+    )
+
     /**
-     * Returns true if any NSFW object is detected in the bitmap with confidence > threshold.
+     * Returns DetectionResult with NSFW analysis and all detection boxes.
      * The bitmap is letterboxed to 320x320 internally (aspect-ratio preserved, gray padding).
      */
-    fun detect(bitmap: Bitmap): Boolean {
-        val interp = interpreter ?: return false
+    fun detect(bitmap: Bitmap): DetectionResult {
+        val interp = interpreter ?: return DetectionResult(false, emptyList(), emptyList(), emptySet())
         return try {
             // 1. Letterbox to 320x320 (maintain aspect ratio, pad with gray)
             val inputBuffer = letterboxBitmapToByteBuffer(bitmap)
@@ -95,8 +110,8 @@ class NsfwDetector(context: Context) {
             interp.run(inputBuffer, rawOutput)
 
             // 3. Transpose to [2100, 9] and filter
-            val detections = parseDetections(rawOutput[0])
-            val nmsResults = nonMaxSuppression(detections)
+            val (filtered, topAll) = parseDetections(rawOutput[0])
+            val nmsResults = nonMaxSuppression(filtered)
 
             if (nmsResults.isNotEmpty()) {
                 for (d in nmsResults) {
@@ -120,24 +135,101 @@ class NsfwDetector(context: Context) {
                     "detections=${nmsResults.size}, classes=${detectedClasses.map { classLabel(it) }}, " +
                     "makeLoveAlone=${hasMakeLove && !hasBodyParts}")
 
-            isUnsafe
+            DetectionResult(isUnsafe, nmsResults, topAll, detectedClasses)
         } catch (e: Exception) {
             Log.e(TAG, "Detection failed", e)
-            false
+            DetectionResult(false, emptyList(), emptyList(), emptySet())
         }
     }
 
-    private data class Detection(
+    /**
+     * DEBUG: Draw bounding boxes on the original bitmap and save to app-specific directory.
+     * Boxes are scaled from model coords (320x320 letterbox) back to original image coords.
+     * Saves to: /storage/emulated/0/Android/data/com.matrixlab.focustime/files/blocked/
+     */
+    fun saveDebugImage(original: Bitmap, result: DetectionResult) {
+        try {
+            val dir = File(context.getExternalFilesDir("blocked"), "")
+            dir.mkdirs()
+
+            val mutable = original.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(mutable)
+
+            // Calculate letterbox params to map boxes back to original coords
+            val srcW = original.width.toFloat()
+            val srcH = original.height.toFloat()
+            val scale = minOf(INPUT_SIZE / srcW, INPUT_SIZE / srcH)
+            val padLeft = (INPUT_SIZE - srcW * scale) / 2f
+            val padTop = (INPUT_SIZE - srcH * scale) / 2f
+
+            val classColors = intArrayOf(
+                Color.RED,          // anus
+                Color.MAGENTA,      // make_love
+                Color.YELLOW,       // nipple
+                Color.CYAN,         // penis
+                Color.GREEN         // vagina
+            )
+
+            val boxPaint = Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 4f
+            }
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 36f
+                isFakeBoldText = true
+                setShadowLayer(3f, 1f, 1f, Color.BLACK)
+            }
+
+            // Draw ALL top detections (including low-confidence) so we always see boxes
+            for (d in result.allDetections) {
+                // Convert from model 320x320 letterbox coords to original image coords
+                val x1 = ((d.cx - d.w / 2f) - padLeft) / scale
+                val y1 = ((d.cy - d.h / 2f) - padTop) / scale
+                val x2 = ((d.cx + d.w / 2f) - padLeft) / scale
+                val y2 = ((d.cy + d.h / 2f) - padTop) / scale
+
+                boxPaint.color = classColors.getOrElse(d.classId) { Color.WHITE }
+                canvas.drawRect(x1, y1, x2, y2, boxPaint)
+
+                val label = "${classLabel(d.classId)} %.2f%%".format(d.confidence * 100)
+                canvas.drawText(label, x1 + 4, y1 - 8, textPaint)
+            }
+
+            // Add result text at top
+            val resultLabel = if (result.isUnsafe) "UNSAFE" else "SAFE"
+            val headerPaint = Paint().apply {
+                color = if (result.isUnsafe) Color.RED else Color.GREEN
+                textSize = 48f
+                isFakeBoldText = true
+                setShadowLayer(4f, 2f, 2f, Color.BLACK)
+            }
+            canvas.drawText("$resultLabel | ${result.detections.size} detections", 20f, 60f, headerPaint)
+
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+            val file = File(dir, "${resultLabel}_${timestamp}.jpg")
+            FileOutputStream(file).use { out ->
+                mutable.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            mutable.recycle()
+            Log.d(TAG, "Debug image saved: ${file.absolutePath}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save debug image", e)
+        }
+    }
+
+    data class Detection(
         val cx: Float, val cy: Float, val w: Float, val h: Float,
         val classId: Int, val confidence: Float
     )
 
     /**
      * Transpose [9, 2100] to list of detections, filtering by confidence.
-     * Logs detailed statistics: count, min, max, average score per class.
+     * Returns Pair(filtered detections, top-20 raw detections for debug).
      */
-    private fun parseDetections(output: Array<FloatArray>): List<Detection> {
+    private fun parseDetections(output: Array<FloatArray>): Pair<List<Detection>, List<Detection>> {
         val results = mutableListOf<Detection>()
+        val allCandidates = mutableListOf<Detection>()
         
         // Track statistics per class
         val classCount = IntArray(NUM_CLASSES)
@@ -165,16 +257,19 @@ class NsfwDetector(context: Context) {
                 classScoreMax[c] = maxOf(classScoreMax[c], score)
                 classScoreMin[c] = minOf(classScoreMin[c], score)
             }
+
+            val det = Detection(
+                cx = output[0][i],
+                cy = output[1][i],
+                w = output[2][i],
+                h = output[3][i],
+                classId = maxClass,
+                confidence = maxScore
+            )
+            allCandidates.add(det)
             
             if (maxScore >= CONFIDENCE_THRESHOLD) {
-                results.add(Detection(
-                    cx = output[0][i],
-                    cy = output[1][i],
-                    w = output[2][i],
-                    h = output[3][i],
-                    classId = maxClass,
-                    confidence = maxScore
-                ))
+                results.add(det)
             }
         }
         
@@ -190,8 +285,10 @@ class NsfwDetector(context: Context) {
                 avg, min, max, sum))
         }
         Log.d(TAG, "Detections PASSED threshold ($CONFIDENCE_THRESHOLD): ${results.size} / $NUM_DETECTIONS")
-        
-        return results
+
+        // Return top 20 by confidence for debug drawing
+        val top20 = allCandidates.sortedByDescending { it.confidence }.take(20)
+        return Pair(results, top20)
     }
 
     /**
