@@ -117,4 +117,15 @@ class AccessibilityService {
       return false;
     }
   }
+
+  Future<bool> setAiNsfwScanEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setAiNsfwScanEnabled', {
+        'enabled': enabled,
+      });
+      return result ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }

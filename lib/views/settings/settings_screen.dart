@@ -88,6 +88,18 @@ class _SettingsBody extends StatelessWidget {
                   value: vm.settings.pornBlockEnabled,
                   onChanged: vm.togglePornBlock,
                 ),
+                SwitchListTile(
+                  title: const Text('AI image scanner'),
+                  subtitle: Text(
+                    vm.settings.pornBlockEnabled
+                        ? 'Use AI to detect and block explicit images (Android 11+)'
+                        : 'Enable "Block adult content" first',
+                  ),
+                  value: vm.settings.aiNsfwScanEnabled,
+                  onChanged: vm.settings.pornBlockEnabled
+                      ? vm.toggleAiNsfwScan
+                      : null,
+                ),
                 const Divider(),
 
                 // Monitored apps

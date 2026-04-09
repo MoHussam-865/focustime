@@ -2,15 +2,24 @@ package com.matrixlab.focustime.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import com.matrixlab.focustime.filter.BlockLists
 import com.matrixlab.focustime.filter.ContentFilterManager
+import com.matrixlab.focustime.filter.NsfwDetector
 import com.matrixlab.focustime.service.BlockerForegroundService
+import java.security.MessageDigest
+import java.util.concurrent.Executors
 
 class ReelsBlockerAccessibilityService : AccessibilityService() {
 
@@ -21,7 +30,9 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_BLOCKED_COUNT = "flutter.blocked_count"
         private const val KEY_MONITORED_PACKAGES = "flutter.monitored_packages"
         private const val KEY_PORN_BLOCK_ENABLED = "flutter.porn_block_enabled"
+        private const val KEY_AI_NSFW_SCAN_ENABLED = "flutter.ai_nsfw_scan_enabled"
         private const val MAX_TREE_DEPTH = 15
+        private const val AI_SCAN_COOLDOWN_MS = 750L
     }
 
     private val targetPackages = setOf(
@@ -66,18 +77,46 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
 
     private var lastBlockTime = 0L
     private var lastPornBlockTime = 0L
+    private var lastAiScanTime = 0L
     private var cooldownMs = 2000L
     private val pornCooldownMs = 3000L
     private var monitoredPackages: Set<String> = targetPackages
     private var pornBlockEnabled = true
+    private var aiNsfwScanEnabled = false
     private lateinit var prefs: SharedPreferences
     private val contentFilter = ContentFilterManager()
+    private var nsfwDetector: NsfwDetector? = null
+    private val aiExecutor = Executors.newSingleThreadExecutor()
+    @Volatile private var aiScanInProgress = false
+    @Volatile private var screenOn = true
+    private var lastScreenshotHash = ""
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             KEY_MONITORED_PACKAGES -> loadMonitoredPackages()
             KEY_COOLDOWN -> cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
             KEY_PORN_BLOCK_ENABLED -> loadPornBlockEnabled()
+            KEY_AI_NSFW_SCAN_ENABLED -> loadAiNsfwScanEnabled()
+        }
+    }
+
+    // Pauses AI scanning when screen is off / device locked
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    screenOn = false
+                    Log.d(TAG, "Screen OFF — AI scanning paused")
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    screenOn = true
+                    Log.d(TAG, "Screen ON — AI scanning resumed")
+                }
+                Intent.ACTION_USER_PRESENT -> {
+                    screenOn = true
+                    Log.d(TAG, "Device unlocked — AI scanning resumed")
+                }
+            }
         }
     }
 
@@ -88,9 +127,24 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
         loadMonitoredPackages()
         loadPornBlockEnabled()
+        loadAiNsfwScanEnabled()
         applyDynamicPackageFilter()
+        registerScreenReceiver()
         startBlockerService()
         Log.d(TAG, "Accessibility Service connected. Cooldown: ${cooldownMs}ms, Packages: $monitoredPackages")
+    }
+
+    private fun registerScreenReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        registerReceiver(screenReceiver, filter)
+        // Check initial state
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        screenOn = pm.isInteractive
+        Log.d(TAG, "Screen receiver registered, screenOn=$screenOn")
     }
 
     /**
@@ -100,6 +154,14 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
      */
     private fun applyDynamicPackageFilter() {
         try {
+            // When AI NSFW scan is on, monitor ALL apps (no package filter)
+            if (aiNsfwScanEnabled && pornBlockEnabled) {
+                serviceInfo = serviceInfo.apply {
+                    packageNames = null
+                }
+                Log.d(TAG, "Dynamic package filter: monitoring ALL apps (AI scan enabled)")
+                return
+            }
             var allPackages = monitoredPackages.toMutableSet()
             if (pornBlockEnabled) {
                 allPackages += BlockLists.browserPackages
@@ -165,6 +227,39 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun loadAiNsfwScanEnabled() {
+        val wasEnabled = aiNsfwScanEnabled
+        aiNsfwScanEnabled = try {
+            prefs.getBoolean(KEY_AI_NSFW_SCAN_ENABLED, false)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load AI NSFW scan setting, defaulting to false", e)
+            false
+        }
+        Log.d(TAG, "AI NSFW scan enabled: $aiNsfwScanEnabled (was: $wasEnabled)")
+        
+        // Re-apply package filter (null = all apps when AI is on)
+        if (::prefs.isInitialized) {
+            applyDynamicPackageFilter()
+        }
+        
+        // Initialize or release the detector based on the setting
+        if (aiNsfwScanEnabled && nsfwDetector == null) {
+            try {
+                Log.d(TAG, "Initializing NsfwDetector (YOLO)...")
+                nsfwDetector = NsfwDetector(this)
+                Log.d(TAG, "✓ NsfwDetector initialized successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "✗ Failed to initialize NsfwDetector", e)
+                aiNsfwScanEnabled = false
+            }
+        } else if (!aiNsfwScanEnabled && wasEnabled) {
+            Log.d(TAG, "Releasing NsfwDetector...")
+            nsfwDetector?.close()
+            nsfwDetector = null
+            Log.d(TAG, "✓ NsfwDetector released")
+        }
+    }
+
     /** Safely read a Long from prefs, handling stale Int values */
     private fun safeLong(key: String, default: Long): Long {
         return try {
@@ -213,12 +308,28 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                     lastPornBlockTime = now
                     incrementBlockedCount()
                     showToast("Content blocked by FocusTime")
+                    return
+                }
+                // ── Layer 2.5: AI YOLO scan in browser ──────────────────
+                if (aiNsfwScanEnabled && screenOn && !aiScanInProgress) {
+                    if (now - lastAiScanTime >= AI_SCAN_COOLDOWN_MS) {
+                        lastAiScanTime = now
+                        triggerAiScreenshotScan(pkg)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error checking browser content", e)
             }
             // Browser events don't fall through to reels check
             return
+        }
+
+        // ── Layer 2.5b: AI YOLO scan in any other app ──────────────
+        if (pornBlockEnabled && aiNsfwScanEnabled && screenOn && !aiScanInProgress) {
+            if (now - lastAiScanTime >= AI_SCAN_COOLDOWN_MS) {
+                lastAiScanTime = now
+                triggerAiScreenshotScan(pkg)
+            }
         }
 
         // ── Layer 3: Reels / Shorts blocking (existing logic) ────────
@@ -307,10 +418,104 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         Log.d(TAG, "Accessibility Service interrupted")
     }
 
+    // ── AI YOLO Scanning ──────────────────────────────────────────
+
+    /**
+     * Takes a screenshot, checks if content changed via hash.
+     * Only runs YOLO detection if screen content is new (hash differs).
+     * No cropping needed — YOLO spatially detects objects in the full frame.
+     */
+    private fun triggerAiScreenshotScan(pkg: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Log.d(TAG, "AI scan skipped: requires API 30+")
+            return
+        }
+        val detector = nsfwDetector ?: run {
+            Log.w(TAG, "AI scan: detector is null")
+            return
+        }
+        aiScanInProgress = true
+
+        takeScreenshot(
+            android.view.Display.DEFAULT_DISPLAY,
+            aiExecutor,
+            object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    try {
+                        val hwBmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                        if (hwBmp == null) { Log.w(TAG, "AI scan: null hwBmp"); return }
+
+                        val softBmp = hwBmp.copy(Bitmap.Config.ARGB_8888, false)
+                        hwBmp.recycle()
+                        result.hardwareBuffer.close()
+                        if (softBmp == null) { Log.w(TAG, "AI scan: copy failed"); return }
+
+                        // Check if screen content changed via hash
+                        val currentHash = screenshotHash(softBmp)
+                        if (currentHash == lastScreenshotHash) {
+                            Log.d(TAG, "AI scan: screen unchanged (same hash) — skipping")
+                            softBmp.recycle()
+                            aiScanInProgress = false
+                            return
+                        }
+                        lastScreenshotHash = currentHash
+
+                        Log.d(TAG, "AI scan: screenshot ${softBmp.width}x${softBmp.height} for $pkg (hash=$currentHash)")
+
+                        val nsfw = detector.detect(softBmp)
+                        softBmp.recycle()
+
+                        if (nsfw) {
+                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — blocking")
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                            lastPornBlockTime = System.currentTimeMillis()
+                            incrementBlockedCount()
+                            android.os.Handler(mainLooper).post {
+                                showToast("Content blocked by FocusTime (AI)")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "AI scan failed", e)
+                    } finally {
+                        aiScanInProgress = false
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    Log.w(TAG, "AI scan: screenshot failed code=$errorCode")
+                    aiScanInProgress = false
+                }
+            }
+        )
+    }
+
+    /**
+     * Compute SHA-256 hash of bitmap bytes for change detection.
+     * Returns first 8 chars of hash for logging.
+     */
+    private fun screenshotHash(bitmap: Bitmap): String {
+        val bytes = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(bytes, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val byteData = ByteArray(bytes.size * 4)
+        for (i in bytes.indices) {
+            byteData[i * 4] = (bytes[i] shr 24).toByte()
+            byteData[i * 4 + 1] = (bytes[i] shr 16).toByte()
+            byteData[i * 4 + 2] = (bytes[i] shr 8).toByte()
+            byteData[i * 4 + 3] = bytes[i].toByte()
+        }
+        val hash = digest.digest(byteData)
+        return hash.take(4).joinToString("") { "%02x".format(it) }
+    }
+
     override fun onDestroy() {
         if (::prefs.isInitialized) {
             prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         }
+        try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
+        nsfwDetector?.close()
+        nsfwDetector = null
+        aiExecutor.shutdownNow()
         stopBlockerService()
         super.onDestroy()
         Log.d(TAG, "Accessibility Service destroyed")

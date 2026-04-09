@@ -20,6 +20,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   static const _keyShowToast = 'show_toast';
   static const _keyBlockLog = 'block_log';
   static const _keyPornBlock = 'porn_block_enabled';
+  static const _keyAiNsfwScan = 'ai_nsfw_scan_enabled';
   static const _keyOnboardingCompleted = 'onboarding_completed';
 
   final SharedPreferences _prefs;
@@ -59,6 +60,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
       showToastOnBlock: _prefs.getBool(_keyShowToast) ?? true,
       blockLogEnabled: _prefs.getBool(_keyBlockLog) ?? true,
       pornBlockEnabled: _prefs.getBool(_keyPornBlock) ?? true,
+      aiNsfwScanEnabled: _prefs.getBool(_keyAiNsfwScan) ?? false,
     );
   }
 
@@ -68,6 +70,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
     await _prefs.setBool(_keyShowToast, settings.showToastOnBlock);
     await _prefs.setBool(_keyBlockLog, settings.blockLogEnabled);
     await _prefs.setBool(_keyPornBlock, settings.pornBlockEnabled);
+    await _prefs.setBool(_keyAiNsfwScan, settings.aiNsfwScanEnabled);
   }
 
   @override

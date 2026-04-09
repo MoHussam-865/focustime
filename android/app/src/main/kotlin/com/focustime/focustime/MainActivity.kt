@@ -117,6 +117,16 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_ARG", "enabled argument is required", null)
                         }
                     }
+                    "setAiNsfwScanEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled")
+                        if (enabled != null) {
+                            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            prefs.edit().putBoolean("flutter.ai_nsfw_scan_enabled", enabled).apply()
+                            result.success(true)
+                        } else {
+                            result.error("INVALID_ARG", "enabled argument is required", null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

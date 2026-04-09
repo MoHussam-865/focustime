@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/nsfw_model_raw/
+/nsfw_model.zip
+/datasets/
+/model_files/
+calibration_image_sample_data_20x128x128x3_float32.npy

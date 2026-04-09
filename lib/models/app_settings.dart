@@ -3,12 +3,14 @@ class AppSettings {
   final bool showToastOnBlock;
   final bool blockLogEnabled;
   final bool pornBlockEnabled;
+  final bool aiNsfwScanEnabled;
 
   const AppSettings({
     this.cooldownMs = 2000,
     this.showToastOnBlock = true,
     this.blockLogEnabled = true,
     this.pornBlockEnabled = true,
+    this.aiNsfwScanEnabled = false,
   });
 
   AppSettings copyWith({
@@ -16,12 +18,14 @@ class AppSettings {
     bool? showToastOnBlock,
     bool? blockLogEnabled,
     bool? pornBlockEnabled,
+    bool? aiNsfwScanEnabled,
   }) {
     return AppSettings(
       cooldownMs: cooldownMs ?? this.cooldownMs,
       showToastOnBlock: showToastOnBlock ?? this.showToastOnBlock,
       blockLogEnabled: blockLogEnabled ?? this.blockLogEnabled,
       pornBlockEnabled: pornBlockEnabled ?? this.pornBlockEnabled,
+      aiNsfwScanEnabled: aiNsfwScanEnabled ?? this.aiNsfwScanEnabled,
     );
   }
 
@@ -33,7 +37,8 @@ class AppSettings {
           cooldownMs == other.cooldownMs &&
           showToastOnBlock == other.showToastOnBlock &&
           blockLogEnabled == other.blockLogEnabled &&
-          pornBlockEnabled == other.pornBlockEnabled;
+          pornBlockEnabled == other.pornBlockEnabled &&
+          aiNsfwScanEnabled == other.aiNsfwScanEnabled;
 
   @override
   int get hashCode => Object.hash(
@@ -41,5 +46,6 @@ class AppSettings {
     showToastOnBlock,
     blockLogEnabled,
     pornBlockEnabled,
+    aiNsfwScanEnabled,
   );
 }

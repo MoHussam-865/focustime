@@ -35,6 +35,9 @@ class SettingsViewModel extends ChangeNotifier {
       await _accessibilityService.setPornBlockEnabled(
         _settings.pornBlockEnabled,
       );
+      await _accessibilityService.setAiNsfwScanEnabled(
+        _settings.aiNsfwScanEnabled,
+      );
     } catch (_) {
       _settings = const AppSettings();
       _blockedApps = BlockedApp.defaults();
@@ -69,6 +72,13 @@ class SettingsViewModel extends ChangeNotifier {
     notifyListeners();
     await _settingsRepository.saveSettings(_settings);
     await _accessibilityService.setPornBlockEnabled(value);
+  }
+
+  Future<void> toggleAiNsfwScan(bool value) async {
+    _settings = _settings.copyWith(aiNsfwScanEnabled: value);
+    notifyListeners();
+    await _settingsRepository.saveSettings(_settings);
+    await _accessibilityService.setAiNsfwScanEnabled(value);
   }
 
   Future<void> toggleApp(int index) async {
