@@ -87,6 +87,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     private val contentFilter = ContentFilterManager()
     private var nsfwDetector: NsfwDetector? = null
     private val aiExecutor = Executors.newSingleThreadExecutor()
+    private val aiBackPressExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var aiScanInProgress = false
     @Volatile private var screenOn = true
     private var lastScreenshotHash = ""
@@ -376,7 +377,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         // user is watching regular content.
         for (pattern in playerViewIdPatterns) {
             if (pattern in viewId) {
-                Log.d(TAG, "Player match: pattern='$pattern' viewId='$viewId'")
+                // Log.d(TAG, "Player match: pattern='$pattern' viewId='$viewId'")
                 node.recycle()
                 return true
             }
@@ -453,31 +454,31 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                         // Check if screen content changed via hash
                         val currentHash = screenshotHash(softBmp)
                         if (currentHash == lastScreenshotHash) {
-                            Log.d(TAG, "AI scan: screen unchanged (same hash) — skipping")
+                            // Log.d(TAG, "AI scan: screen unchanged (same hash) — skipping")
                             softBmp.recycle()
                             aiScanInProgress = false
                             return
                         }
                         lastScreenshotHash = currentHash
 
-                        Log.d(TAG, "AI scan: screenshot ${softBmp.width}x${softBmp.height} for $pkg (hash=$currentHash)")
+                        // Log.d(TAG, "AI scan: screenshot ${softBmp.width}x${softBmp.height} for $pkg (hash=$currentHash)")
 
                         val result = detector.detect(softBmp)
 
-                        // DEBUG: save annotated image to /sdcard/blocked/
-                        detector.saveDebugImage(softBmp, result)
+                        // DEBUG: save annotated image (commented out)
+                        // detector.saveDebugImage(softBmp, result)
 
                         softBmp.recycle()
 
                         if (result.isUnsafe) {
-                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — closing app")
-                            // Go home to close the app entirely
-                            performGlobalAction(GLOBAL_ACTION_HOME)
+                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — pressing back until safe")
                             lastPornBlockTime = System.currentTimeMillis()
                             incrementBlockedCount()
                             android.os.Handler(mainLooper).post {
                                 showToast("Content blocked by FocusTime (AI)")
                             }
+                            // Keep pressing back and re-scanning until safe
+                            pressBackUntilSafe(pkg, detector)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "AI scan failed", e)
@@ -492,6 +493,77 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                 }
             }
         )
+    }
+
+    /**
+     * Press back, take a new screenshot, check if still NSFW, repeat until safe or max attempts.
+     * Runs on the AI executor thread so no delays block the main thread.
+     */
+    private fun pressBackUntilSafe(pkg: String, detector: NsfwDetector, maxAttempts: Int = 10) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        var attempts = 0
+        while (attempts < maxAttempts) {
+            attempts++
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            // Log.d(TAG, "AI back-press #$attempts for $pkg")
+
+            // Brief wait for the screen to update after back press
+            try { Thread.sleep(350) } catch (_: InterruptedException) { return }
+
+            // Take a new screenshot synchronously via a blocking latch
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var stillUnsafe = false
+            var scanFailed = false
+
+            takeScreenshot(
+                android.view.Display.DEFAULT_DISPLAY,
+                aiBackPressExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(result: ScreenshotResult) {
+                        try {
+                            val hwBmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            if (hwBmp == null) { scanFailed = true; return }
+                            val softBmp = hwBmp.copy(Bitmap.Config.ARGB_8888, false)
+                            hwBmp.recycle()
+                            result.hardwareBuffer.close()
+                            if (softBmp == null) { scanFailed = true; return }
+
+                            val detectResult = detector.detect(softBmp)
+                            // detector.saveDebugImage(softBmp, detectResult)
+                            softBmp.recycle()
+                            stillUnsafe = detectResult.isUnsafe
+                            // Log.d(TAG, "AI back-press #$attempts re-scan: ${if (stillUnsafe) "STILL UNSAFE" else "NOW SAFE"}")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "AI back-press re-scan failed", e)
+                            scanFailed = true
+                        } finally {
+                            latch.countDown()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "AI back-press screenshot failed code=$errorCode")
+                        scanFailed = true
+                        latch.countDown()
+                    }
+                }
+            )
+
+            // Wait for the screenshot callback
+            try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) { break }
+
+            if (scanFailed || !stillUnsafe) {
+                if (!stillUnsafe) Log.d(TAG, "AI: screen is now safe after $attempts back presses")
+                break
+            }
+        }
+
+        if (attempts >= maxAttempts) {
+            Log.d(TAG, "AI: max back presses reached ($maxAttempts), going home")
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        }
+
+        aiScanInProgress = false
     }
 
     /**

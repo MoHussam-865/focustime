@@ -2,15 +2,15 @@ package com.matrixlab.focustime.filter
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
+// import android.graphics.Canvas
+// import android.graphics.Color
+// import android.graphics.Paint
 import android.util.Log
-import java.io.File
-import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+// import java.io.File
+// import java.io.FileOutputStream
+// import java.text.SimpleDateFormat
+// import java.util.Date
+// import java.util.Locale
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
@@ -40,13 +40,14 @@ class NsfwDetector(private val context: Context) {
         private const val NUM_DETECTIONS = 2100
         private const val NUM_CLASSES = 5
         private const val BOX_COORDS = 4
+        private const val BODY_PARTS = 0.09f
         // Per-class detection thresholds
         private val CLASS_THRESHOLDS = floatArrayOf(
-            0.05f,  // anus
+            BODY_PARTS,  // anus
             0.25f,  // make_love
-            0.05f,  // nipple
-            0.05f,  // penis
-            0.05f   // vagina
+            BODY_PARTS,  // nipple
+            BODY_PARTS,  // penis
+            BODY_PARTS   // vagina
         )
         private const val IOU_THRESHOLD = 0.45f
     }
@@ -119,12 +120,12 @@ class NsfwDetector(private val context: Context) {
             val (filtered, topAll) = parseDetections(rawOutput[0])
             val nmsResults = nonMaxSuppression(filtered)
 
-            if (nmsResults.isNotEmpty()) {
-                for (d in nmsResults) {
-                    Log.d(TAG, "NSFW detected: class=${classLabel(d.classId)} conf=%.2f box=(%.0f,%.0f,%.0f,%.0f)".format(
-                        d.confidence, d.cx, d.cy, d.w, d.h))
-                }
-            }
+            // if (nmsResults.isNotEmpty()) {
+            //     for (d in nmsResults) {
+            //         Log.d(TAG, "NSFW detected: class=${classLabel(d.classId)} conf=%.2f box=(%.0f,%.0f,%.0f,%.0f)".format(
+            //             d.confidence, d.cx, d.cy, d.w, d.h))
+            //     }
+            // }
 
             // Analyze detected classes to decide safe/unsafe
             val detectedClasses = nmsResults.map { it.classId }.toSet()
@@ -137,9 +138,9 @@ class NsfwDetector(private val context: Context) {
                 else -> false                              // nothing detected
             }
 
-            Log.d(TAG, "Result: ${if (isUnsafe) "UNSAFE" else "SAFE"} | " +
-                    "detections=${nmsResults.size}, classes=${detectedClasses.map { classLabel(it) }}, " +
-                    "makeLoveAlone=${hasMakeLove && !hasBodyParts}")
+            // Log.d(TAG, "Result: ${if (isUnsafe) "UNSAFE" else "SAFE"} | " +
+            //         "detections=${nmsResults.size}, classes=${detectedClasses.map { classLabel(it) }}, " +
+            //         "makeLoveAlone=${hasMakeLove && !hasBodyParts}")
 
             DetectionResult(isUnsafe, nmsResults, topAll, detectedClasses)
         } catch (e: Exception) {
@@ -148,11 +149,10 @@ class NsfwDetector(private val context: Context) {
         }
     }
 
-    /**
-     * DEBUG: Draw bounding boxes on the original bitmap and save to app-specific directory.
-     * Boxes are scaled from model coords (320x320 letterbox) back to original image coords.
-     * Saves to: /storage/emulated/0/Android/data/com.matrixlab.focustime/files/blocked/
-     */
+    /*
+    // DEBUG: Draw bounding boxes on the original bitmap and save to app-specific directory.
+    // Boxes are scaled from model coords (320x320 letterbox) back to original image coords.
+    // Saves to: /storage/emulated/0/Android/data/com.matrixlab.focustime/files/blocked/
     fun saveDebugImage(original: Bitmap, result: DetectionResult) {
         try {
             val dir = File(context.getExternalFilesDir("blocked"), "")
@@ -223,6 +223,7 @@ class NsfwDetector(private val context: Context) {
             Log.e(TAG, "Failed to save debug image", e)
         }
     }
+    */
 
     data class Detection(
         val cx: Float, val cy: Float, val w: Float, val h: Float,
@@ -237,11 +238,11 @@ class NsfwDetector(private val context: Context) {
         val results = mutableListOf<Detection>()
         val allCandidates = mutableListOf<Detection>()
         
-        // Track statistics per class
-        val classCount = IntArray(NUM_CLASSES)
-        val classScoreSum = FloatArray(NUM_CLASSES)
-        val classScoreMax = FloatArray(NUM_CLASSES)
-        val classScoreMin = FloatArray(NUM_CLASSES) { Float.MAX_VALUE }
+        // // Track statistics per class
+        // val classCount = IntArray(NUM_CLASSES)
+        // val classScoreSum = FloatArray(NUM_CLASSES)
+        // val classScoreMax = FloatArray(NUM_CLASSES)
+        // val classScoreMin = FloatArray(NUM_CLASSES) { Float.MAX_VALUE }
         
         for (i in 0 until NUM_DETECTIONS) {
             // Find best class score
@@ -255,14 +256,14 @@ class NsfwDetector(private val context: Context) {
                 }
             }
             
-            // Track statistics for all classes
-            for (c in 0 until NUM_CLASSES) {
-                val score = output[BOX_COORDS + c][i]
-                classCount[c]++
-                classScoreSum[c] += score
-                classScoreMax[c] = maxOf(classScoreMax[c], score)
-                classScoreMin[c] = minOf(classScoreMin[c], score)
-            }
+            // // Track statistics for all classes
+            // for (c in 0 until NUM_CLASSES) {
+            //     val score = output[BOX_COORDS + c][i]
+            //     classCount[c]++
+            //     classScoreSum[c] += score
+            //     classScoreMax[c] = maxOf(classScoreMax[c], score)
+            //     classScoreMin[c] = minOf(classScoreMin[c], score)
+            // }
 
             val det = Detection(
                 cx = output[0][i],
@@ -280,18 +281,18 @@ class NsfwDetector(private val context: Context) {
             }
         }
         
-        // Log statistics for all classes
-        Log.d(TAG, "=== NSFW Detection Statistics ===")
-        for (c in 0 until NUM_CLASSES) {
-            val count = classCount[c]
-            val sum = classScoreSum[c]
-            val max = classScoreMax[c]
-            val min = if (classScoreMin[c] == Float.MAX_VALUE) 0f else classScoreMin[c]
-            val avg = sum / count
-            Log.d(TAG, "Class ${classLabel(c)}: count=$count, avg=%.4f, min=%.4f, max=%.4f, sum=%.2f".format(
-                avg, min, max, sum))
-        }
-        Log.d(TAG, "Detections PASSED per-class thresholds: ${results.size} / $NUM_DETECTIONS")
+        // // Log statistics for all classes
+        // Log.d(TAG, "=== NSFW Detection Statistics ===")
+        // for (c in 0 until NUM_CLASSES) {
+        //     val count = classCount[c]
+        //     val sum = classScoreSum[c]
+        //     val max = classScoreMax[c]
+        //     val min = if (classScoreMin[c] == Float.MAX_VALUE) 0f else classScoreMin[c]
+        //     val avg = sum / count
+        //     Log.d(TAG, "Class ${classLabel(c)}: count=$count, avg=%.4f, min=%.4f, max=%.4f, sum=%.2f".format(
+        //         avg, min, max, sum))
+        // }
+        // Log.d(TAG, "Detections PASSED per-class thresholds: ${results.size} / $NUM_DETECTIONS")
 
         // Return top 20 by confidence for debug drawing
         val top20 = allCandidates.sortedByDescending { it.confidence }.take(20)
@@ -346,7 +347,7 @@ class NsfwDetector(private val context: Context) {
         val padLeft = (INPUT_SIZE - newW) / 2
         val padTop = (INPUT_SIZE - newH) / 2
 
-        Log.d(TAG, "Letterbox: ${srcW}x${srcH} -> ${newW}x${newH}, pad=($padLeft,$padTop)")
+        // Log.d(TAG, "Letterbox: ${srcW}x${srcH} -> ${newW}x${newH}, pad=($padLeft,$padTop)")
 
         // Resize maintaining aspect ratio
         val resized = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
