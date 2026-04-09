@@ -40,7 +40,7 @@ class NsfwDetector(private val context: Context) {
         private const val NUM_DETECTIONS = 2100
         private const val NUM_CLASSES = 5
         private const val BOX_COORDS = 4
-        private const val BODY_PARTS = 0.09f
+        private const val BODY_PARTS = 0.01f
         // Per-class detection thresholds
         private val CLASS_THRESHOLDS = floatArrayOf(
             BODY_PARTS,  // anus
@@ -238,32 +238,26 @@ class NsfwDetector(private val context: Context) {
         val results = mutableListOf<Detection>()
         val allCandidates = mutableListOf<Detection>()
         
-        // // Track statistics per class
-        // val classCount = IntArray(NUM_CLASSES)
-        // val classScoreSum = FloatArray(NUM_CLASSES)
-        // val classScoreMax = FloatArray(NUM_CLASSES)
-        // val classScoreMin = FloatArray(NUM_CLASSES) { Float.MAX_VALUE }
+        // Track how many times each class wins (best score), its max confidence, and total score sum
+        val classBestCount = IntArray(NUM_CLASSES)
+        val classBestMax = FloatArray(NUM_CLASSES)
+        val classScoreSum = FloatArray(NUM_CLASSES)
         
         for (i in 0 until NUM_DETECTIONS) {
-            // Find best class score
+            // Find best class score + accumulate sums for all classes
             var maxScore = 0f
             var maxClass = 0
             for (c in 0 until NUM_CLASSES) {
                 val score = output[BOX_COORDS + c][i]
+                classScoreSum[c] += score
                 if (score > maxScore) {
                     maxScore = score
                     maxClass = c
                 }
             }
             
-            // // Track statistics for all classes
-            // for (c in 0 until NUM_CLASSES) {
-            //     val score = output[BOX_COORDS + c][i]
-            //     classCount[c]++
-            //     classScoreSum[c] += score
-            //     classScoreMax[c] = maxOf(classScoreMax[c], score)
-            //     classScoreMin[c] = minOf(classScoreMin[c], score)
-            // }
+            classBestCount[maxClass]++
+            classBestMax[maxClass] = maxOf(classBestMax[maxClass], maxScore)
 
             val det = Detection(
                 cx = output[0][i],
@@ -281,18 +275,11 @@ class NsfwDetector(private val context: Context) {
             }
         }
         
-        // // Log statistics for all classes
-        // Log.d(TAG, "=== NSFW Detection Statistics ===")
-        // for (c in 0 until NUM_CLASSES) {
-        //     val count = classCount[c]
-        //     val sum = classScoreSum[c]
-        //     val max = classScoreMax[c]
-        //     val min = if (classScoreMin[c] == Float.MAX_VALUE) 0f else classScoreMin[c]
-        //     val avg = sum / count
-        //     Log.d(TAG, "Class ${classLabel(c)}: count=$count, avg=%.4f, min=%.4f, max=%.4f, sum=%.2f".format(
-        //         avg, min, max, sum))
-        // }
-        // Log.d(TAG, "Detections PASSED per-class thresholds: ${results.size} / $NUM_DETECTIONS")
+        // Single-line stats: class=count(max,sum)
+        val stats = (0 until NUM_CLASSES).joinToString { c ->
+            "${classLabel(c)}=${classBestCount[c]}(max=%.3f,sum=%.1f)".format(classBestMax[c], classScoreSum[c])
+        }
+        Log.d(TAG, "Stats: $stats | passed=${results.size}/$NUM_DETECTIONS")
 
         // Return top 20 by confidence for debug drawing
         val top20 = allCandidates.sortedByDescending { it.confidence }.take(20)

@@ -471,13 +471,21 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                         softBmp.recycle()
 
                         if (result.isUnsafe) {
-                            Log.d(TAG, "AI scan: *** NSFW DETECTED in $pkg *** — pressing back until safe")
+                            // Confirmation scan: wait for screen to settle, re-scan to avoid
+                            // false positives from scroll blur / half-rendered frames
+                            Thread.sleep(300)
+                            val confirmed = confirmUnsafe(detector)
+                            if (!confirmed) {
+                                Log.d(TAG, "AI scan: first scan UNSAFE but confirmation SAFE — false positive, ignoring")
+                                aiScanInProgress = false
+                                return
+                            }
+                            Log.d(TAG, "AI scan: *** NSFW CONFIRMED in $pkg *** — pressing back until safe")
                             lastPornBlockTime = System.currentTimeMillis()
                             incrementBlockedCount()
                             android.os.Handler(mainLooper).post {
                                 showToast("Content blocked by FocusTime (AI)")
                             }
-                            // Keep pressing back and re-scanning until safe
                             pressBackUntilSafe(pkg, detector)
                         }
                     } catch (e: Exception) {
@@ -493,6 +501,50 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                 }
             }
         )
+    }
+
+    /**
+     * Confirmation scan: takes a fresh screenshot and runs detection.
+     * Returns true if the new scan is also UNSAFE.
+     * Blocks the calling thread (runs on aiExecutor so that's fine).
+     */
+    private fun confirmUnsafe(detector: NsfwDetector): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var isUnsafe = false
+
+        takeScreenshot(
+            android.view.Display.DEFAULT_DISPLAY,
+            aiBackPressExecutor,
+            object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    try {
+                        val hwBmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            ?: return
+                        val softBmp = hwBmp.copy(Bitmap.Config.ARGB_8888, false)
+                        hwBmp.recycle()
+                        result.hardwareBuffer.close()
+                        if (softBmp == null) return
+
+                        val detectResult = detector.detect(softBmp)
+                        softBmp.recycle()
+                        isUnsafe = detectResult.isUnsafe
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Confirmation scan failed", e)
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    Log.w(TAG, "Confirmation screenshot failed code=$errorCode")
+                    latch.countDown()
+                }
+            }
+        )
+
+        try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) {}
+        return isUnsafe
     }
 
     /**
