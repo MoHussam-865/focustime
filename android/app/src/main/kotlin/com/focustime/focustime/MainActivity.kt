@@ -127,6 +127,16 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_ARG", "enabled argument is required", null)
                         }
                     }
+                    "setBlockingPausedUntil" -> {
+                        val until = call.argument<Number>("until")
+                        if (until != null) {
+                            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            prefs.edit().putLong("flutter.blocking_paused_until", until.toLong()).apply()
+                            result.success(true)
+                        } else {
+                            result.error("INVALID_ARG", "until argument is required", null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

@@ -139,28 +139,69 @@ class _DashboardBodyState extends State<_DashboardBody>
                   ),
                   const SizedBox(height: 16),
 
-                  // Monitored apps
-                  Text(
-                    'Monitored Apps',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ...List.generate(vm.blockedApps.length, (index) {
-                    final app = vm.blockedApps[index];
-                    return Card(
-                      child: SwitchListTile(
-                        title: Text(app.displayName),
-                        subtitle: Text(
-                          app.packageName,
-                          style: theme.textTheme.bodySmall,
+                  // Pause blocking
+                  if (vm.isPaused)
+                    Card(
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.pause_circle,
+                              size: 40,
+                              color: Colors.orange.shade700,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Blocking paused – ${_formatRemaining(vm.pauseRemaining)}',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: Colors.orange.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton(
+                              onPressed: vm.resumeBlocking,
+                              child: const Text('Resume now'),
+                            ),
+                          ],
                         ),
-                        value: app.isEnabled,
-                        onChanged: (_) => vm.toggleApp(index),
                       ),
-                    );
-                  }),
+                    )
+                  else
+                    Center(
+                      child: SizedBox(
+                        width: 160,
+                        height: 160,
+                        child: FilledButton(
+                          onPressed: () =>
+                              vm.pauseBlocking(const Duration(minutes: 2)),
+                          style: FilledButton.styleFrom(
+                            shape: const CircleBorder(),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.pause,
+                                size: 48,
+                                color: theme.colorScheme.onPrimary,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Pause\n2 min',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: theme.colorScheme.onPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
 
                   if (vm.errorMessage != null) ...[
                     const SizedBox(height: 16),
@@ -174,5 +215,11 @@ class _DashboardBodyState extends State<_DashboardBody>
               ),
             ),
     );
+  }
+
+  String _formatRemaining(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '${m}:${s.toString().padLeft(2, '0')}';
   }
 }

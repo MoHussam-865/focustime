@@ -31,6 +31,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_MONITORED_PACKAGES = "flutter.monitored_packages"
         private const val KEY_PORN_BLOCK_ENABLED = "flutter.porn_block_enabled"
         private const val KEY_AI_NSFW_SCAN_ENABLED = "flutter.ai_nsfw_scan_enabled"
+        private const val KEY_BLOCKING_PAUSED_UNTIL = "flutter.blocking_paused_until"
         private const val MAX_TREE_DEPTH = 15
         private const val AI_SCAN_COOLDOWN_MS = 750L
     }
@@ -90,6 +91,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     private val aiBackPressExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var aiScanInProgress = false
     @Volatile private var screenOn = true
+    @Volatile private var blockingPausedUntil = 0L
     private var lastScreenshotHash = ""
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -98,6 +100,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
             KEY_COOLDOWN -> cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
             KEY_PORN_BLOCK_ENABLED -> loadPornBlockEnabled()
             KEY_AI_NSFW_SCAN_ENABLED -> loadAiNsfwScanEnabled()
+            KEY_BLOCKING_PAUSED_UNTIL -> blockingPausedUntil = safeLong(KEY_BLOCKING_PAUSED_UNTIL, 0L)
         }
     }
 
@@ -126,6 +129,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
+        blockingPausedUntil = safeLong(KEY_BLOCKING_PAUSED_UNTIL, 0L)
         loadMonitoredPackages()
         loadPornBlockEnabled()
         loadAiNsfwScanEnabled()
@@ -279,6 +283,9 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         val pkg = event.packageName?.toString() ?: return
+
+        // ── Global pause check ───────────────────────────────────────
+        if (blockingPausedUntil > 0 && System.currentTimeMillis() < blockingPausedUntil) return
 
         val eventType = event.eventType
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
@@ -463,10 +470,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
 
                         // Log.d(TAG, "AI scan: screenshot ${softBmp.width}x${softBmp.height} for $pkg (hash=$currentHash)")
 
-                        val result = detector.detect(softBmp)
-
-                        // DEBUG: save annotated image (commented out)
-                        // detector.saveDebugImage(softBmp, result)
+                        val result = detector.detectTiled(softBmp)
 
                         softBmp.recycle()
 
@@ -526,7 +530,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                         result.hardwareBuffer.close()
                         if (softBmp == null) return
 
-                        val detectResult = detector.detect(softBmp)
+                        val detectResult = detector.detectTiled(softBmp)
                         softBmp.recycle()
                         isUnsafe = detectResult.isUnsafe
                     } catch (e: Exception) {
@@ -580,8 +584,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
                             result.hardwareBuffer.close()
                             if (softBmp == null) { scanFailed = true; return }
 
-                            val detectResult = detector.detect(softBmp)
-                            // detector.saveDebugImage(softBmp, detectResult)
+                            val detectResult = detector.detectTiled(softBmp)
                             softBmp.recycle()
                             stillUnsafe = detectResult.isUnsafe
                             // Log.d(TAG, "AI back-press #$attempts re-scan: ${if (stillUnsafe) "STILL UNSAFE" else "NOW SAFE"}")

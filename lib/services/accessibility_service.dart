@@ -128,4 +128,16 @@ class AccessibilityService {
       return false;
     }
   }
+
+  Future<bool> setBlockingPausedUntil(int epochMs) async {
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'setBlockingPausedUntil',
+        {'until': epochMs},
+      );
+      return result ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }
