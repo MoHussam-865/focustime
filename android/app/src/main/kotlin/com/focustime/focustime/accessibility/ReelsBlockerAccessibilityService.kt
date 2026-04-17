@@ -31,6 +31,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_MONITORED_PACKAGES = "flutter.monitored_packages"
         private const val KEY_PORN_BLOCK_ENABLED = "flutter.porn_block_enabled"
         private const val KEY_AI_NSFW_SCAN_ENABLED = "flutter.ai_nsfw_scan_enabled"
+        private const val KEY_AI_BLOCKING_LEVEL = "flutter.ai_blocking_level"
         private const val KEY_BLOCKING_PAUSED_UNTIL = "flutter.blocking_paused_until"
         private const val MAX_TREE_DEPTH = 15
         private const val AI_SCAN_COOLDOWN_MS = 750L
@@ -100,6 +101,7 @@ class ReelsBlockerAccessibilityService : AccessibilityService() {
             KEY_COOLDOWN -> cooldownMs = safeLong(KEY_COOLDOWN, 2000L)
             KEY_PORN_BLOCK_ENABLED -> loadPornBlockEnabled()
             KEY_AI_NSFW_SCAN_ENABLED -> loadAiNsfwScanEnabled()
+            KEY_AI_BLOCKING_LEVEL -> Log.d(TAG, "AI blocking level changed to: ${prefs.getString(KEY_AI_BLOCKING_LEVEL, "porn")}")
             KEY_BLOCKING_PAUSED_UNTIL -> blockingPausedUntil = safeLong(KEY_BLOCKING_PAUSED_UNTIL, 0L)
         }
     }

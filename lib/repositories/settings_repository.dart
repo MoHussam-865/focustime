@@ -21,6 +21,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   static const _keyBlockLog = 'block_log';
   static const _keyPornBlock = 'porn_block_enabled';
   static const _keyAiNsfwScan = 'ai_nsfw_scan_enabled';
+  static const _keyAiBlockingLevel = 'ai_blocking_level';
   static const _keyOnboardingCompleted = 'onboarding_completed';
 
   final SharedPreferences _prefs;
@@ -61,6 +62,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
       blockLogEnabled: _prefs.getBool(_keyBlockLog) ?? true,
       pornBlockEnabled: _prefs.getBool(_keyPornBlock) ?? true,
       aiNsfwScanEnabled: _prefs.getBool(_keyAiNsfwScan) ?? false,
+      aiBlockingLevel: _prefs.getString(_keyAiBlockingLevel) ?? 'porn',
     );
   }
 
@@ -71,6 +73,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
     await _prefs.setBool(_keyBlockLog, settings.blockLogEnabled);
     await _prefs.setBool(_keyPornBlock, settings.pornBlockEnabled);
     await _prefs.setBool(_keyAiNsfwScan, settings.aiNsfwScanEnabled);
+    await _prefs.setString(_keyAiBlockingLevel, settings.aiBlockingLevel);
   }
 
   @override

@@ -48,3 +48,8 @@ app.*.map.json
 /datasets/
 /model_files/
 calibration_image_sample_data_20x128x128x3_float32.npy
+*.onnx
+temp_model.tflite
+temp*.*
+generated*.*
+Generated*.*

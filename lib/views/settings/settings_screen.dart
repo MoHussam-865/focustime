@@ -100,6 +100,36 @@ class _SettingsBody extends StatelessWidget {
                       ? vm.toggleAiNsfwScan
                       : null,
                 ),
+                if (vm.settings.aiNsfwScanEnabled) ...[
+                  const SizedBox(height: 4),
+                  ListTile(
+                    title: const Text('AI blocking level'),
+                    subtitle: const Text(
+                      'Choose what types of content to block',
+                    ),
+                    trailing: DropdownButton<String>(
+                      value: vm.settings.aiBlockingLevel,
+                      underline: const SizedBox.shrink(),
+                      onChanged: (value) {
+                        if (value != null) vm.updateAiBlockingLevel(value);
+                      },
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'porn',
+                          child: Text('Porn only'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'nude',
+                          child: Text('Nude'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'female',
+                          child: Text('Female'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const Divider(),
 
                 // Monitored apps

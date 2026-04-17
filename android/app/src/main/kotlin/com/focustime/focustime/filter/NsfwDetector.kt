@@ -1,6 +1,7 @@
 package com.matrixlab.focustime.filter
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -20,44 +21,86 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
 
 /**
- * YOLO11-based NSFW object detector using EraX-Anti-NSFW-V1.1 (nano).
+ * YOLOv8-based NSFW object detector using NudeNet 18-class model.
  *
- * Input:  [1, 320, 320, 3] float32, pixels normalised to [0,1]
- * Output: [1, 9, 2100]     float32
- *         rows 0-3 = cx, cy, w, h  (in pixels, 320-scale)
- *         rows 4-8 = class scores for anus, make_love, nipple, penis, vagina
+ * Input:  [1, 3, 640, 640] float32, pixels normalised to [0,1], RGB
+ * Output: [1, 22, 8400]    float32
+ *         rows 0-3 = cx, cy, w, h  (in pixels, 640-scale)
+ *         rows 4-21 = class scores for 18 NudeNet classes
  *
- * We transpose to [2100, 9] and apply confidence + NMS filtering.
+ * The screen is dynamically divided into square tiles to avoid distortion.
+ * Each tile is resized to 640x640 (square->square = no distortion).
  */
 class NsfwDetector(private val context: Context) {
 
     companion object {
         private const val TAG = "NsfwDetector"
-        private const val MODEL_FILE = "erax-anti-nsfw-yolo11n-v1.1_float32.tflite"
-        private const val INPUT_SIZE = 320
-        private const val NUM_DETECTIONS = 2100
-        private const val NUM_CLASSES = 5
+        private const val MODEL_FILE = "temp_model.tflite"
+        private const val INPUT_SIZE = 640
+        private const val NUM_DETECTIONS = 8400
+        private const val NUM_CLASSES = 18
         private const val BOX_COORDS = 4
-        private const val BODY_PARTS = 0.1f
-        // Per-class detection thresholds
-        private val CLASS_THRESHOLDS = floatArrayOf(
-            BODY_PARTS,  // anus
-            0.30f,  // make_love
-            BODY_PARTS,  // nipple
-            BODY_PARTS,  // penis
-            BODY_PARTS   // vagina
-        )
+        private const val CONF_THRESHOLD = 0.2f
         private const val IOU_THRESHOLD = 0.45f
-        // Minimum box area as fraction of model input area (320×320).
-        // Boxes smaller than this are noise anchors — real detections are larger.
-        private const val MIN_BOX_AREA_FRACTION = 0.005f // 0.5% of 320×320 = ~512 px²
+        // Minimum box area as fraction of model input area (640x640).
+        private const val MIN_BOX_AREA_FRACTION = 0.005f // 0.5% of 640x640 = ~2048 px^2
+        // Cap tile size so downscale to 640 is at most ~2x
+        private const val MAX_TILE_PX = INPUT_SIZE * 2 // 1280
+        // Overlap ratio between tiles (15%)
+        private const val TILE_OVERLAP_RATIO = 0.15f
+
+        private const val PREFS_NAME = "FlutterSharedPreferences"
+        private const val KEY_AI_BLOCKING_LEVEL = "flutter.ai_blocking_level"
+
+        // 18 NudeNet classes in model index order (must match Python CLASSES list exactly)
+        private val CLASS_NAMES = arrayOf(
+            "FEMALE_GENITALIA_COVERED",  // 0
+            "FACE_FEMALE",               // 1
+            "BUTTOCKS_EXPOSED",          // 2
+            "FEMALE_BREAST_EXPOSED",     // 3
+            "FEMALE_GENITALIA_EXPOSED",  // 4
+            "MALE_BREAST_EXPOSED",       // 5
+            "ANUS_EXPOSED",              // 6
+            "FEET_EXPOSED",              // 7
+            "BELLY_COVERED",             // 8
+            "FEET_COVERED",              // 9
+            "ARMPITS_COVERED",           // 10
+            "ARMPITS_EXPOSED",           // 11
+            "FACE_MALE",                 // 12
+            "BELLY_EXPOSED",             // 13
+            "MALE_GENITALIA_EXPOSED",    // 14
+            "ANUS_COVERED",              // 15
+            "FEMALE_BREAST_COVERED",     // 16
+            "BUTTOCKS_COVERED"           // 17
+        )
+
+        // Blocking level -> set of class indices that trigger blocking
+        private val LEVEL_PORN = setOf(2, 3, 4, 6, 13, 14)
+        private val LEVEL_NUDE = LEVEL_PORN + setOf(0, 8, 11, 15, 16, 17)
+        private val LEVEL_FEMALE = LEVEL_NUDE + setOf(1)
+
+        fun blockedClassesForLevel(level: String): Set<Int> = when (level) {
+            "nude" -> LEVEL_NUDE
+            "female" -> LEVEL_FEMALE
+            else -> LEVEL_PORN // default
+        }
     }
 
     private var interpreter: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
     private var nnApiDelegate: NnApiDelegate? = null
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // Pre-allocated reusable buffers for performance (avoid GC pressure)
+    private val inputBuffer: ByteBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3).apply {
+        order(ByteOrder.nativeOrder())
+    }
+    private val rawOutput: Array<Array<FloatArray>> = Array(1) { Array(BOX_COORDS + NUM_CLASSES) { FloatArray(NUM_DETECTIONS) } }
 
     init {
         try {
@@ -85,7 +128,7 @@ class NsfwDetector(private val context: Context) {
                 }
             }
             interpreter = Interpreter(model, options)
-            Log.d(TAG, "NSFW YOLO detector loaded (input=${INPUT_SIZE}x${INPUT_SIZE}, detections=$NUM_DETECTIONS)")
+            Log.d(TAG, "NSFW YOLO detector loaded (input=${INPUT_SIZE}x${INPUT_SIZE}, classes=$NUM_CLASSES, detections=$NUM_DETECTIONS)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load NSFW detector model", e)
         }
@@ -98,52 +141,46 @@ class NsfwDetector(private val context: Context) {
         return channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
     }
 
+    /** Read current blocking level from SharedPreferences. */
+    private fun getBlockedClasses(): Set<Int> {
+        val level = try {
+            prefs.getString(KEY_AI_BLOCKING_LEVEL, "porn") ?: "porn"
+        } catch (e: Exception) {
+            "porn"
+        }
+        return blockedClassesForLevel(level)
+    }
+
     data class DetectionResult(
         val isUnsafe: Boolean,
-        val detections: List<Detection>,       // NMS-filtered, above threshold
-        val allDetections: List<Detection>,    // Top raw detections for debug drawing
+        val detections: List<Detection>,
+        val allDetections: List<Detection>,
         val detectedClasses: Set<Int>
     )
 
     /**
-     * Returns DetectionResult with NSFW analysis and all detection boxes.
-     * The bitmap is letterboxed to 320x320 internally (aspect-ratio preserved, gray padding).
+     * Run detection on a single (square) tile bitmap.
+     * Resizes to 640x640 (square->square = zero distortion), runs inference,
+     * applies NMS, and checks against the active blocking level.
      */
     fun detect(bitmap: Bitmap): DetectionResult {
         val interp = interpreter ?: return DetectionResult(false, emptyList(), emptyList(), emptySet())
         return try {
-            // 1. Letterbox to 320x320 (maintain aspect ratio, pad with gray)
-            val inputBuffer = letterboxBitmapToByteBuffer(bitmap)
+            // 1. Resize square tile to 640x640 and fill input buffer
+            fillInputBuffer(bitmap)
 
-            // 2. Run inference — output shape [1, 9, 2100]
-            val rawOutput = Array(1) { Array(BOX_COORDS + NUM_CLASSES) { FloatArray(NUM_DETECTIONS) } }
+            // 2. Run inference — output shape [1, 22, 8400]
+            for (row in rawOutput[0]) row.fill(0f)
             interp.run(inputBuffer, rawOutput)
 
-            // 3. Transpose to [2100, 9] and filter
+            // 3. Parse [22, 8400] -> filtered detections + NMS
             val (filtered, topAll) = parseDetections(rawOutput[0])
             val nmsResults = nonMaxSuppression(filtered)
 
-            // if (nmsResults.isNotEmpty()) {
-            //     for (d in nmsResults) {
-            //         Log.d(TAG, "NSFW detected: class=${classLabel(d.classId)} conf=%.2f box=(%.0f,%.0f,%.0f,%.0f)".format(
-            //             d.confidence, d.cx, d.cy, d.w, d.h))
-            //     }
-            // }
-
-            // Analyze detected classes to decide safe/unsafe
+            // 4. Check against active blocking level
             val detectedClasses = nmsResults.map { it.classId }.toSet()
-            val hasMakeLove = 1 in detectedClasses       // make_love
-            val hasBodyParts = detectedClasses.any { it in intArrayOf(0, 2, 3, 4) } // anus, nipple, penis, vagina
-
-            val isUnsafe = when {
-                hasBodyParts -> true                       // body parts detected → always unsafe
-                hasMakeLove && !hasBodyParts -> false       // make_love alone → false positive
-                else -> false                              // nothing detected
-            }
-
-            // Log.d(TAG, "Result: ${if (isUnsafe) "UNSAFE" else "SAFE"} | " +
-            //         "detections=${nmsResults.size}, classes=${detectedClasses.map { classLabel(it) }}, " +
-            //         "makeLoveAlone=${hasMakeLove && !hasBodyParts}")
+            val blockedClasses = getBlockedClasses()
+            val isUnsafe = nmsResults.any { it.classId in blockedClasses }
 
             DetectionResult(isUnsafe, nmsResults, topAll, detectedClasses)
         } catch (e: Exception) {
@@ -152,55 +189,86 @@ class NsfwDetector(private val context: Context) {
         }
     }
 
+    // -- Dynamic square tiling ------------------------------------------------
+
     /**
-     * Tiled detection: splits the bitmap into the minimum number of square
-     * tiles (side = min(width, height)) with ≥10% overlap so each tile
-     * resizes to 320×320 with zero aspect-ratio distortion (square→square).
+     * Compute a grid of square tile regions that cover the entire image.
      *
-     * Example: 1080×2400 → 3 tiles of 1080×1080, stride ≈ 660.
-     * Early-exits on the first unsafe tile.
+     * Algorithm (following Python tiling.py logic):
+     * 1. tileSize = min(w, h), capped at MAX_TILE_PX (1280) to avoid >2x downscale
+     * 2. Compute cols/rows needed with TILE_OVERLAP_RATIO overlap
+     * 3. Evenly space tiles; last tile anchored to edge for full coverage
+     *
+     * Returns list of [x, y, size, size] regions.
+     */
+    private fun computeSquareTiles(imgW: Int, imgH: Int): List<IntArray> {
+        var tileSize = min(imgW, imgH)
+        if (tileSize > MAX_TILE_PX) tileSize = MAX_TILE_PX
+
+        val cols = if (imgW <= tileSize) 1
+                   else max(1, ceil(imgW.toDouble() / (tileSize * (1.0 - TILE_OVERLAP_RATIO))).toInt())
+        val rows = if (imgH <= tileSize) 1
+                   else max(1, ceil(imgH.toDouble() / (tileSize * (1.0 - TILE_OVERLAP_RATIO))).toInt())
+
+        val tiles = mutableListOf<IntArray>()
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                val x = when {
+                    cols == 1 -> 0
+                    c == cols - 1 -> imgW - tileSize  // anchor last col to right edge
+                    else -> (c * (imgW - tileSize).toDouble() / (cols - 1)).toInt()
+                }
+                val y = when {
+                    rows == 1 -> 0
+                    r == rows - 1 -> imgH - tileSize  // anchor last row to bottom edge
+                    else -> (r * (imgH - tileSize).toDouble() / (rows - 1)).toInt()
+                }
+                tiles.add(intArrayOf(
+                    max(0, x),
+                    max(0, y),
+                    min(tileSize, imgW - max(0, x)),
+                    min(tileSize, imgH - max(0, y))
+                ))
+            }
+        }
+        return tiles
+    }
+
+    /**
+     * Tiled detection: dynamically divides the bitmap into square tiles,
+     * runs inference on each, and early-exits on the first unsafe tile.
+     *
+     * Tiles are always square so resizing to 640x640 introduces zero distortion.
+     * Tile size and count adapt to the actual screen dimensions.
      */
     fun detectTiled(bitmap: Bitmap): DetectionResult {
         interpreter ?: return DetectionResult(false, emptyList(), emptyList(), emptySet())
 
         val w = bitmap.width
         val h = bitmap.height
-        val tileSize = minOf(w, h)
 
-        // Already square or nearly so (≤15% longer) — skip tiling
-        if (maxOf(w, h).toFloat() / tileSize <= 1.15f) {
-            val result = detect(bitmap)
-            // if (result.isUnsafe) saveUnsafeCrops(bitmap, result)
-            return result
+        // Nearly square — single tile, no splitting needed
+        if (w > 0 && h > 0 && max(w, h).toFloat() / min(w, h) <= 1.15f) {
+            return detect(bitmap)
         }
 
-        val isPortrait = h > w
-        val longDim = maxOf(w, h)
-
-        // Minimum tiles to cover the long axis with ≥10% overlap
-        val maxStride = tileSize - (tileSize * 0.10f).toInt()
-        val numTiles = ((longDim - tileSize + maxStride - 1) / maxStride) + 1
-
-        // Space tiles evenly for uniform overlap
-        val stride = if (numTiles > 1) (longDim - tileSize) / (numTiles - 1) else 0
-
-        Log.d(TAG, "Tiled scan: ${w}x${h} → $numTiles tiles of ${tileSize}x${tileSize}, stride=$stride")
+        val tiles = computeSquareTiles(w, h)
+        Log.d(TAG, "Tiled scan: ${w}x${h} -> ${tiles.size} tiles")
 
         val allNms = mutableListOf<Detection>()
         val allDebug = mutableListOf<Detection>()
         val allClasses = mutableSetOf<Int>()
 
-        for (i in 0 until numTiles) {
-            val offset = i * stride
-            val x = if (isPortrait) 0 else offset.coerceAtMost(w - tileSize)
-            val y = if (isPortrait) offset.coerceAtMost(h - tileSize) else 0
-
-            val tile = Bitmap.createBitmap(bitmap, x, y, tileSize, tileSize)
+        for ((idx, tile) in tiles.withIndex()) {
+            val tx = tile[0]; val ty = tile[1]; val tw = tile[2]; val th = tile[3]
+            // Ensure square crop (use min side if edge tile is slightly non-square)
+            val cropSize = min(tw, th)
+            val tileBmp = Bitmap.createBitmap(bitmap, tx, ty, cropSize, cropSize)
             var result: DetectionResult? = null
             try {
-                result = detect(tile)
+                result = detect(tileBmp)
             } catch (e: Exception) {
-                Log.e(TAG, "Tiled scan: tile $i failed", e)
+                Log.e(TAG, "Tiled scan: tile $idx failed", e)
             }
 
             if (result != null) {
@@ -209,124 +277,41 @@ class NsfwDetector(private val context: Context) {
                 allClasses.addAll(result.detectedClasses)
 
                 if (result.isUnsafe) {
-                    Log.d(TAG, "Tiled scan: tile $i/$numTiles UNSAFE — early exit")
-                    // Save crops from the tile BEFORE recycling — coords match tile dimensions
-                    // saveUnsafeCrops(tile, result)
-                    if (tile !== bitmap) tile.recycle()
+                    Log.d(TAG, "Tiled scan: tile $idx/${tiles.size} UNSAFE — early exit")
+                    if (tileBmp !== bitmap) tileBmp.recycle()
                     return DetectionResult(true, allNms, allDebug, allClasses)
                 }
             }
-            if (tile !== bitmap) tile.recycle()
+            if (tileBmp !== bitmap) tileBmp.recycle()
         }
 
         return DetectionResult(false, allNms, allDebug, allClasses)
     }
 
+    // -- Preprocessing --------------------------------------------------------
+
     /**
-     * Save only the unsafe detection crops from the tile/bitmap that was fed to detect().
-     * Each NMS-filtered detection is cropped, annotated with a label, and saved as a JPEG.
+     * Resize bitmap to INPUT_SIZE x INPUT_SIZE and fill the reusable inputBuffer.
+     * Since tiles are always square, this is a simple scale with no distortion.
+     * Normalizes pixels to [0,1] float32 in RGB channel order.
      *
-     * Called internally by detectTiled() while the tile is still alive so coords are correct.
-     * Saves to: /storage/emulated/0/Android/data/com.matrixlab.focustime/files/blocked/
+     * Python reference: cv2.dnn.blobFromImage(img, 1/255.0, (640,640), swapRB=True)
      */
-    private fun saveUnsafeCrops(tileBitmap: Bitmap, result: DetectionResult) {
-        if (!result.isUnsafe || result.detections.isEmpty()) return
-        try {
-            val dir = File(context.getExternalFilesDir("blocked"), "")
-            dir.mkdirs()
+    private fun fillInputBuffer(bitmap: Bitmap) {
+        val resized = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        resized.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        if (resized !== bitmap) resized.recycle()
 
-            val tileW = tileBitmap.width
-            val tileH = tileBitmap.height
-
-            // Read ALL tile pixels via getPixels — guaranteed to work
-            // (same method used by letterboxBitmapToByteBuffer for inference)
-            val allPixels = IntArray(tileW * tileH)
-            tileBitmap.getPixels(allPixels, 0, tileW, 0, 0, tileW, tileH)
-
-            // Letterbox params to map 320-scale boxes → tile pixel coords
-            val srcW = tileW.toFloat()
-            val srcH = tileH.toFloat()
-            val scale = minOf(INPUT_SIZE / srcW, INPUT_SIZE / srcH)
-            val padLeft = (INPUT_SIZE - srcW * scale) / 2f
-            val padTop = (INPUT_SIZE - srcH * scale) / 2f
-
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
-
-            val classColors = intArrayOf(
-                Color.RED, Color.MAGENTA, Color.YELLOW, Color.CYAN, Color.GREEN
-            )
-
-            for ((idx, d) in result.detections.withIndex()) {
-                // Map from model 320×320 letterbox coords to tile pixel coords
-                val x1 = (((d.cx - d.w / 2f) - padLeft) / scale).toInt().coerceIn(0, tileW - 1)
-                val y1 = (((d.cy - d.h / 2f) - padTop) / scale).toInt().coerceIn(0, tileH - 1)
-                val x2 = (((d.cx + d.w / 2f) - padLeft) / scale).toInt().coerceIn(x1 + 1, tileW)
-                val y2 = (((d.cy + d.h / 2f) - padTop) / scale).toInt().coerceIn(y1 + 1, tileH)
-
-                val cropW = x2 - x1
-                val cropH = y2 - y1
-                if (cropW <= 0 || cropH <= 0) continue
-
-                // Add padding around crop (20% each side) so context is visible
-                val padX = (cropW * 0.2f).toInt()
-                val padY = (cropH * 0.2f).toInt()
-                val px1 = (x1 - padX).coerceAtLeast(0)
-                val py1 = (y1 - padY).coerceAtLeast(0)
-                val px2 = (x2 + padX).coerceAtMost(tileW)
-                val py2 = (y2 + padY).coerceAtMost(tileH)
-
-                val cw = px2 - px1
-                val ch = py2 - py1
-                if (cw <= 0 || ch <= 0) continue
-
-                // Extract crop pixels manually from the allPixels array
-                val cropPixels = IntArray(cw * ch)
-                for (row in 0 until ch) {
-                    System.arraycopy(
-                        allPixels, (py1 + row) * tileW + px1,
-                        cropPixels, row * cw,
-                        cw
-                    )
-                }
-
-                // Create a fresh mutable bitmap and set pixels directly
-                val mutable = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888)
-                mutable.setPixels(cropPixels, 0, cw, 0, 0, cw, ch)
-
-                // Draw box + label on the crop
-                val canvas = Canvas(mutable)
-                val boxPaint = Paint().apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = 3f
-                    color = classColors.getOrElse(d.classId) { Color.WHITE }
-                }
-                // Box coords relative to padded crop
-                val bx1 = (x1 - px1).toFloat()
-                val by1 = (y1 - py1).toFloat()
-                val bx2 = (x2 - px1).toFloat()
-                val by2 = (y2 - py1).toFloat()
-                canvas.drawRect(bx1, by1, bx2, by2, boxPaint)
-
-                val textPaint = Paint().apply {
-                    color = Color.WHITE
-                    textSize = 28f
-                    isFakeBoldText = true
-                    setShadowLayer(3f, 1f, 1f, Color.BLACK)
-                }
-                val label = "${classLabel(d.classId)} %.1f%%".format(d.confidence * 100)
-                canvas.drawText(label, bx1 + 2, by1 - 4, textPaint)
-
-                val file = File(dir, "UNSAFE_${timestamp}_${idx}_${classLabel(d.classId)}.jpg")
-                FileOutputStream(file).use { out ->
-                    mutable.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                }
-                mutable.recycle()
-                Log.d(TAG, "Unsafe crop saved: ${file.absolutePath} (${cw}x${ch})")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save unsafe crops", e)
+        inputBuffer.rewind()
+        for (pixel in pixels) {
+            inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f) // R
+            inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255.0f)  // G
+            inputBuffer.putFloat((pixel and 0xFF) / 255.0f)          // B
         }
     }
+
+    // -- Post-processing ------------------------------------------------------
 
     data class Detection(
         val cx: Float, val cy: Float, val w: Float, val h: Float,
@@ -334,31 +319,29 @@ class NsfwDetector(private val context: Context) {
     )
 
     /**
-     * Transpose [9, 2100] to list of detections, filtering by confidence.
+     * Parse [22, 8400] output -> list of detections, filtering by CONF_THRESHOLD.
      * Returns Pair(filtered detections, top-20 raw detections for debug).
      */
     private fun parseDetections(output: Array<FloatArray>): Pair<List<Detection>, List<Detection>> {
         val results = mutableListOf<Detection>()
         val allCandidates = mutableListOf<Detection>()
-        
-        // Track how many times each class wins (best score), its max confidence, and total score sum
+
         val classBestCount = IntArray(NUM_CLASSES)
         val classBestMax = FloatArray(NUM_CLASSES)
-        val classScoreSum = FloatArray(NUM_CLASSES)
-        
+
+        val minArea = MIN_BOX_AREA_FRACTION * INPUT_SIZE * INPUT_SIZE
+
         for (i in 0 until NUM_DETECTIONS) {
-            // Find best class score + accumulate sums for all classes
             var maxScore = 0f
             var maxClass = 0
             for (c in 0 until NUM_CLASSES) {
                 val score = output[BOX_COORDS + c][i]
-                classScoreSum[c] += score
                 if (score > maxScore) {
                     maxScore = score
                     maxClass = c
                 }
             }
-            
+
             classBestCount[maxClass]++
             classBestMax[maxClass] = maxOf(classBestMax[maxClass], maxScore)
 
@@ -371,29 +354,27 @@ class NsfwDetector(private val context: Context) {
                 confidence = maxScore
             )
             allCandidates.add(det)
-            
-            val threshold = CLASS_THRESHOLDS.getOrElse(maxClass) { 0.30f }
-            val minArea = MIN_BOX_AREA_FRACTION * INPUT_SIZE * INPUT_SIZE
-            if (maxScore >= threshold) {
+
+            // Filter by confidence and minimum box area
+            if (maxScore >= CONF_THRESHOLD && det.w * det.h >= minArea) {
                 results.add(det)
             }
         }
-        if (!results.isEmpty()) {
-            // Single-line stats: class=count(max,sum)
-            val stats = (0 until NUM_CLASSES).joinToString { c ->
-                "${classLabel(c)}=${classBestCount[c]}(max=%.3f,sum=%.1f)".format(classBestMax[c], classScoreSum[c])
-            }
+
+        if (results.isNotEmpty()) {
+            val stats = (0 until NUM_CLASSES)
+                .filter { classBestMax[it] > 0.01f }
+                .joinToString(" | ") { c ->
+                    "${CLASS_NAMES[c]}=${classBestCount[c]}(max=%.3f)".format(classBestMax[c])
+                }
             Log.d(TAG, "Stats: $stats | passed=${results.size}/$NUM_DETECTIONS")
         }
-        
-        // Return top 20 by confidence for debug drawing
+
         val top20 = allCandidates.sortedByDescending { it.confidence }.take(20)
         return Pair(results, top20)
     }
 
-    /**
-     * Simple greedy NMS by class.
-     */
+    /** Simple greedy NMS by class. */
     private fun nonMaxSuppression(detections: List<Detection>): List<Detection> {
         if (detections.isEmpty()) return emptyList()
 
@@ -424,61 +405,108 @@ class NsfwDetector(private val context: Context) {
         return if (unionArea > 0f) interArea / unionArea else 0f
     }
 
+    // -- Debug: save unsafe crops ---------------------------------------------
+
     /**
-     * Letterbox the bitmap to INPUT_SIZE x INPUT_SIZE:
-     * - Resize maintaining aspect ratio
-     * - Pad remaining space with gray (114/255 ≈ 0.447)
-     * - Normalize pixels to [0,1] float32, RGB order
+     * Save detected NSFW crops as JPEG files for debugging.
+     * Saves to: /storage/emulated/0/Android/data/com.matrixlab.focustime/files/blocked/
      */
-    private fun letterboxBitmapToByteBuffer(bitmap: Bitmap): ByteBuffer {
-        val srcW = bitmap.width
-        val srcH = bitmap.height
-        val scale = minOf(INPUT_SIZE.toFloat() / srcW, INPUT_SIZE.toFloat() / srcH)
-        val newW = (srcW * scale).toInt()
-        val newH = (srcH * scale).toInt()
-        val padLeft = (INPUT_SIZE - newW) / 2
-        val padTop = (INPUT_SIZE - newH) / 2
+    @Suppress("unused")
+    private fun saveUnsafeCrops(tileBitmap: Bitmap, result: DetectionResult) {
+        if (!result.isUnsafe || result.detections.isEmpty()) return
+        try {
+            val dir = File(context.getExternalFilesDir("blocked"), "")
+            dir.mkdirs()
 
-        // Log.d(TAG, "Letterbox: ${srcW}x${srcH} -> ${newW}x${newH}, pad=($padLeft,$padTop)")
+            val tileW = tileBitmap.width
+            val tileH = tileBitmap.height
 
-        // Resize maintaining aspect ratio
-        val resized = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
-        val resizedPixels = IntArray(newW * newH)
-        resized.getPixels(resizedPixels, 0, newW, 0, 0, newW, newH)
-        if (resized != bitmap) resized.recycle()
+            val allPixels = IntArray(tileW * tileH)
+            tileBitmap.getPixels(allPixels, 0, tileW, 0, 0, tileW, tileH)
 
-        val buffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
-        buffer.order(ByteOrder.nativeOrder())
+            // Since tiles are square and resized directly (no letterbox), mapping is:
+            // model_coord * (tileSize / INPUT_SIZE) = pixel_coord
+            val scaleX = tileW.toFloat() / INPUT_SIZE
+            val scaleY = tileH.toFloat() / INPUT_SIZE
 
-        val grayNorm = 114f / 255f // Standard YOLO letterbox padding
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
 
-        for (y in 0 until INPUT_SIZE) {
-            for (x in 0 until INPUT_SIZE) {
-                val inImage = x >= padLeft && x < padLeft + newW &&
-                              y >= padTop && y < padTop + newH
-                if (inImage) {
-                    val pixel = resizedPixels[(y - padTop) * newW + (x - padLeft)]
-                    buffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f) // R
-                    buffer.putFloat(((pixel shr 8) and 0xFF) / 255.0f)  // G
-                    buffer.putFloat((pixel and 0xFF) / 255.0f)          // B
-                } else {
-                    buffer.putFloat(grayNorm) // R
-                    buffer.putFloat(grayNorm) // G
-                    buffer.putFloat(grayNorm) // B
+            val classColors = intArrayOf(
+                Color.RED, Color.MAGENTA, Color.YELLOW, Color.CYAN, Color.GREEN,
+                Color.BLUE, Color.LTGRAY, Color.DKGRAY, Color.WHITE,
+                0xFFFF6600.toInt(), 0xFF00FF66.toInt(), 0xFF6600FF.toInt(),
+                0xFFFF0066.toInt(), 0xFF0066FF.toInt(), 0xFF66FF00.toInt(),
+                0xFFFF00FF.toInt(), 0xFF00FFFF.toInt(), 0xFFFFFF00.toInt()
+            )
+
+            for ((idx, d) in result.detections.withIndex()) {
+                val x1 = ((d.cx - d.w / 2f) * scaleX).toInt().coerceIn(0, tileW - 1)
+                val y1 = ((d.cy - d.h / 2f) * scaleY).toInt().coerceIn(0, tileH - 1)
+                val x2 = ((d.cx + d.w / 2f) * scaleX).toInt().coerceIn(x1 + 1, tileW)
+                val y2 = ((d.cy + d.h / 2f) * scaleY).toInt().coerceIn(y1 + 1, tileH)
+
+                val cropW = x2 - x1
+                val cropH = y2 - y1
+                if (cropW <= 0 || cropH <= 0) continue
+
+                val padX = (cropW * 0.2f).toInt()
+                val padY = (cropH * 0.2f).toInt()
+                val px1 = (x1 - padX).coerceAtLeast(0)
+                val py1 = (y1 - padY).coerceAtLeast(0)
+                val px2 = (x2 + padX).coerceAtMost(tileW)
+                val py2 = (y2 + padY).coerceAtMost(tileH)
+
+                val cw = px2 - px1
+                val ch = py2 - py1
+                if (cw <= 0 || ch <= 0) continue
+
+                val cropPixels = IntArray(cw * ch)
+                for (row in 0 until ch) {
+                    System.arraycopy(
+                        allPixels, (py1 + row) * tileW + px1,
+                        cropPixels, row * cw,
+                        cw
+                    )
                 }
+
+                val mutable = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888)
+                mutable.setPixels(cropPixels, 0, cw, 0, 0, cw, ch)
+
+                val canvas = Canvas(mutable)
+                val boxPaint = Paint().apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = 3f
+                    color = classColors.getOrElse(d.classId) { Color.WHITE }
+                }
+                val bx1 = (x1 - px1).toFloat()
+                val by1 = (y1 - py1).toFloat()
+                val bx2 = (x2 - px1).toFloat()
+                val by2 = (y2 - py1).toFloat()
+                canvas.drawRect(bx1, by1, bx2, by2, boxPaint)
+
+                val textPaint = Paint().apply {
+                    color = Color.WHITE
+                    textSize = 28f
+                    isFakeBoldText = true
+                    setShadowLayer(3f, 1f, 1f, Color.BLACK)
+                }
+                val label = "${classLabel(d.classId)} %.1f%%".format(d.confidence * 100)
+                canvas.drawText(label, bx1 + 2, by1 - 4, textPaint)
+
+                val file = File(dir, "UNSAFE_${timestamp}_${idx}_${classLabel(d.classId)}.jpg")
+                FileOutputStream(file).use { out ->
+                    mutable.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                }
+                mutable.recycle()
+                Log.d(TAG, "Unsafe crop saved: ${file.absolutePath} (${cw}x${ch})")
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save unsafe crops", e)
         }
-        return buffer
     }
 
-    private fun classLabel(id: Int): String = when (id) {
-        0 -> "anus"
-        1 -> "make_love"
-        2 -> "nipple"
-        3 -> "penis"
-        4 -> "vagina"
-        else -> "unknown"
-    }
+    private fun classLabel(id: Int): String =
+        CLASS_NAMES.getOrElse(id) { "unknown" }
 
     fun close() {
         interpreter?.close()

@@ -38,6 +38,9 @@ class SettingsViewModel extends ChangeNotifier {
       await _accessibilityService.setAiNsfwScanEnabled(
         _settings.aiNsfwScanEnabled,
       );
+      await _accessibilityService.setAiBlockingLevel(
+        _settings.aiBlockingLevel,
+      );
     } catch (_) {
       _settings = const AppSettings();
       _blockedApps = BlockedApp.defaults();
@@ -79,6 +82,13 @@ class SettingsViewModel extends ChangeNotifier {
     notifyListeners();
     await _settingsRepository.saveSettings(_settings);
     await _accessibilityService.setAiNsfwScanEnabled(value);
+  }
+
+  Future<void> updateAiBlockingLevel(String level) async {
+    _settings = _settings.copyWith(aiBlockingLevel: level);
+    notifyListeners();
+    await _settingsRepository.saveSettings(_settings);
+    await _accessibilityService.setAiBlockingLevel(level);
   }
 
   Future<void> toggleApp(int index) async {

@@ -129,6 +129,17 @@ class AccessibilityService {
     }
   }
 
+  Future<bool> setAiBlockingLevel(String level) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setAiBlockingLevel', {
+        'level': level,
+      });
+      return result ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Future<bool> setBlockingPausedUntil(int epochMs) async {
     try {
       final result = await _channel.invokeMethod<bool>(

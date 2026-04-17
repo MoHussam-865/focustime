@@ -127,6 +127,16 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_ARG", "enabled argument is required", null)
                         }
                     }
+                    "setAiBlockingLevel" -> {
+                        val level = call.argument<String>("level")
+                        if (level != null) {
+                            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            prefs.edit().putString("flutter.ai_blocking_level", level).apply()
+                            result.success(true)
+                        } else {
+                            result.error("INVALID_ARG", "level argument is required", null)
+                        }
+                    }
                     "setBlockingPausedUntil" -> {
                         val until = call.argument<Number>("until")
                         if (until != null) {

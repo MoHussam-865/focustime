@@ -4,6 +4,7 @@ class AppSettings {
   final bool blockLogEnabled;
   final bool pornBlockEnabled;
   final bool aiNsfwScanEnabled;
+  final String aiBlockingLevel; // "porn", "nude", or "female"
 
   const AppSettings({
     this.cooldownMs = 2000,
@@ -11,6 +12,7 @@ class AppSettings {
     this.blockLogEnabled = true,
     this.pornBlockEnabled = true,
     this.aiNsfwScanEnabled = false,
+    this.aiBlockingLevel = 'porn',
   });
 
   AppSettings copyWith({
@@ -19,6 +21,7 @@ class AppSettings {
     bool? blockLogEnabled,
     bool? pornBlockEnabled,
     bool? aiNsfwScanEnabled,
+    String? aiBlockingLevel,
   }) {
     return AppSettings(
       cooldownMs: cooldownMs ?? this.cooldownMs,
@@ -26,6 +29,7 @@ class AppSettings {
       blockLogEnabled: blockLogEnabled ?? this.blockLogEnabled,
       pornBlockEnabled: pornBlockEnabled ?? this.pornBlockEnabled,
       aiNsfwScanEnabled: aiNsfwScanEnabled ?? this.aiNsfwScanEnabled,
+      aiBlockingLevel: aiBlockingLevel ?? this.aiBlockingLevel,
     );
   }
 
@@ -38,7 +42,8 @@ class AppSettings {
           showToastOnBlock == other.showToastOnBlock &&
           blockLogEnabled == other.blockLogEnabled &&
           pornBlockEnabled == other.pornBlockEnabled &&
-          aiNsfwScanEnabled == other.aiNsfwScanEnabled;
+          aiNsfwScanEnabled == other.aiNsfwScanEnabled &&
+          aiBlockingLevel == other.aiBlockingLevel;
 
   @override
   int get hashCode => Object.hash(
@@ -47,5 +52,6 @@ class AppSettings {
     blockLogEnabled,
     pornBlockEnabled,
     aiNsfwScanEnabled,
+    aiBlockingLevel,
   );
 }
