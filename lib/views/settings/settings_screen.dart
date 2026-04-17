@@ -118,10 +118,7 @@ class _SettingsBody extends StatelessWidget {
                           value: 'porn',
                           child: Text('Porn only'),
                         ),
-                        DropdownMenuItem(
-                          value: 'nude',
-                          child: Text('Nude'),
-                        ),
+                        DropdownMenuItem(value: 'nude', child: Text('Nude')),
                         DropdownMenuItem(
                           value: 'female',
                           child: Text('Female'),

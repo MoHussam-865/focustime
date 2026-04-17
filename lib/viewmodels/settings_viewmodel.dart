@@ -38,9 +38,7 @@ class SettingsViewModel extends ChangeNotifier {
       await _accessibilityService.setAiNsfwScanEnabled(
         _settings.aiNsfwScanEnabled,
       );
-      await _accessibilityService.setAiBlockingLevel(
-        _settings.aiBlockingLevel,
-      );
+      await _accessibilityService.setAiBlockingLevel(_settings.aiBlockingLevel);
     } catch (_) {
       _settings = const AppSettings();
       _blockedApps = BlockedApp.defaults();
