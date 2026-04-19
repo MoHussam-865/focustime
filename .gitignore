@@ -53,3 +53,4 @@ temp_model.tflite
 temp*.*
 generated*.*
 Generated*.*
+detect/

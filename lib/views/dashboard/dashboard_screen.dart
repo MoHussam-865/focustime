@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../di/service_locator.dart';
 import '../../viewmodels/dashboard_viewmodel.dart';
 import '../settings/settings_screen.dart';
+import '../widgets/accessibility_disclosure_dialog.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -103,7 +104,17 @@ class _DashboardBodyState extends State<_DashboardBody>
                           if (!vm.isServiceRunning) ...[
                             const SizedBox(height: 12),
                             FilledButton(
-                              onPressed: vm.openAccessibilitySettings,
+                              onPressed: () async {
+                                // Show prominent disclosure dialog before requesting accessibility permission.
+                                // This is required for Google Play Store compliance.
+                                final agreed =
+                                    await showAccessibilityDisclosureDialog(
+                                      context,
+                                    );
+                                if (agreed) {
+                                  await vm.openAccessibilitySettings();
+                                }
+                              },
                               child: const Text('Enable Accessibility Service'),
                             ),
                           ],

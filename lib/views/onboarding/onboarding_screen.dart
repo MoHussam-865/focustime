@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../viewmodels/onboarding_viewmodel.dart';
+import '../widgets/accessibility_disclosure_dialog.dart';
 
 class OnboardingScreen extends StatelessWidget {
   final VoidCallback onComplete;
@@ -64,7 +65,14 @@ class OnboardingScreen extends StatelessWidget {
                           'Required to detect when shorts or reels are opened so we can block them.',
                       isEnabled: vm.isAccessibilityEnabled,
                       onTap: () async {
-                        await vm.openAccessibilitySettings();
+                        // Display the mandatory prominent disclosure dialog
+                        // to comply with Google Play's AccessibilityService API policies.
+                        final agreed = await showAccessibilityDisclosureDialog(
+                          context,
+                        );
+                        if (agreed) {
+                          await vm.openAccessibilitySettings();
+                        }
                       },
                     ),
                     const SizedBox(height: 16),

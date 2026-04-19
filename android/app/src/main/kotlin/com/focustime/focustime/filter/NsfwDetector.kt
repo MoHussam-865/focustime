@@ -40,7 +40,7 @@ class NsfwDetector(private val context: Context) {
 
     companion object {
         private const val TAG = "NsfwDetector"
-        private const val MODEL_FILE = "temp_model.tflite"
+        private const val MODEL_FILE = "nsfw_17_n.tflite"
         private const val INPUT_SIZE = 640
         private const val NUM_DETECTIONS = 8400
         private const val NUM_CLASSES = 18
